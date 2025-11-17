@@ -1,0 +1,11 @@
+For cloning:
+git clone "url"
+
+
+For pushing:
+git add . //adds everything in folder
+git status //see git status
+git diff //see whats different
+git commit -m "commit massage"
+git push
+
