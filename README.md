@@ -7,7 +7,7 @@ The content of the project is left to the groups working on it.
 
 We are going to convert a RC toy car into an autonomus driving car that is controlled by an ESP8266 and an ultrasound sensor.
 
-##Functionalities
+## Functionalities
 
 The car should perform the following tasks:
 - Break befor collision
