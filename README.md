@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # red
 
 A new Flutter project.
