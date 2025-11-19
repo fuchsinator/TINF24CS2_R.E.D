@@ -1,0 +1,15 @@
+Flutter:
+	Download: https://docs.flutter.dev/install/manual -> follow the steps add Env Var
+	check:
+		flutter --version
+		dart --version
+	flutter doctor
+	flutter create esp_car_control
+	cd esp_car_control
+	open in vs code
+	pubspec.yaml > dependencies:
+			"http: ^1.1.0"
+	flutter pub get
+	under lib/main.dart past your code
+	flutter run -d chrome
+	connect esp to notebook
