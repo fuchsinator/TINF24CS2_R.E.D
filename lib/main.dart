@@ -5,7 +5,7 @@ void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
+  //App-Header
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -20,9 +20,9 @@ class MyApp extends StatelessWidget {
       routes: {
         '/': (ctx) => const WelcomePage(),
         '/modes': (ctx) => const ModeSelectionPage(),
-        '/modeA': (ctx) => const DrivingPage(),
-        '/modeB': (ctx) => const TrackingRoomPage(),
-        '/modeC': (ctx) => const DrawingPage(),
+        '/drive': (ctx) => const DrivingPage(),
+        '/scan': (ctx) => const TrackingRoomPage(),
+        '/draw': (ctx) => const DrawingPage(),
       },
     );
   }
@@ -37,13 +37,13 @@ class WelcomePage extends StatefulWidget {
 }
 
 class _WelcomePageState extends State<WelcomePage> {
-  // Steuerung der Auto-Einfahrt
+  // Steering of animated car 
   bool animateCar = false;
 
   @override
   void initState() {
     super.initState();
-    // Auto nach kurzem Delay von rechts herein fahren lassen
+    //car drives into the frame after 3 Sekundens delay
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) {
         setState(() {
@@ -55,7 +55,6 @@ class _WelcomePageState extends State<WelcomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Farben aus Theme nutzen, so passt alles zusammen
     final primary = Theme.of(context).colorScheme.primary;
     final secondary = Theme.of(context).colorScheme.secondary;
 
@@ -66,7 +65,7 @@ class _WelcomePageState extends State<WelcomePage> {
         final isLandscape =
             orientation == Orientation.landscape || constraints.maxWidth > 800;
 
-        // Bildgrößen adaptiv
+        // picture size adaptiv 
         final double imageHeight =
             isLandscape ? (constraints.maxHeight * 0.5) : 160;
         final double imageMaxWidth =
@@ -74,11 +73,11 @@ class _WelcomePageState extends State<WelcomePage> {
 
         return Container(
           decoration: BoxDecoration(
-            // linearer Verlauf von oben nach unten (top -> bottom)
+            // linear gradient for Background
             gradient: LinearGradient(
               colors: [
-                const Color(0xFFB71C1C), // oben (rot)
-                const Color.fromARGB(255, 57, 57, 57), // unten (dunkelgrau)
+                const Color(0xFFB71C1C), // top (red)
+                const Color.fromARGB(255, 57, 57, 57), // botton (dark grey)
               ],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -92,7 +91,7 @@ class _WelcomePageState extends State<WelcomePage> {
                     ? Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Linke Spalte: Text + Button
+                          // left column: Text + Button
                           Expanded(
                             flex: 5,
                             child: Column(
@@ -115,9 +114,10 @@ class _WelcomePageState extends State<WelcomePage> {
                                   style: TextStyle(color: Colors.white70),
                                 ),
                                 const SizedBox(height: 18),
+                                //Navigation
                                 ElevatedButton(
                                   onPressed: () => Navigator.pushNamed(context, '/modes'),
-                                  child: const Text('modes'),
+                                  child: const Text('Mode'),
                                 ),
                               ],
                             ),
@@ -125,21 +125,21 @@ class _WelcomePageState extends State<WelcomePage> {
 
                           const SizedBox(width: 16),
 
-                          // Rechte Spalte: Flagge + Auto (Stack, Auto fährt VON RECHTS)
+                          // Right column: flag + car 
                           Expanded(
                             flex: 6,
                             child: LayoutBuilder(
                               builder: (context, constraints) {
-                                final imageMaxWidth = constraints.maxWidth * 0.45;
-                                final imageHeight = constraints.maxHeight * 0.8;
+                                final imageMaxWidth = constraints.maxWidth * 0.65;
+                                final imageHeight = constraints.maxHeight * 1;
 
                                 return Stack(
                                   clipBehavior: Clip.none,
                                   children: [
-                                    // FLAGGE: positioniert etwas links hinter dem Auto
+                                    // Flag: position to the left top corner 
                                     Positioned(
                                       left: imageMaxWidth * 0.06,
-                                      top: imageHeight * -0.08,
+                                      top: imageHeight * 0.08,
                                       child: Image.asset(
                                         'assets/images/Checkerflag.png',
                                         width: imageMaxWidth * 0.5,
@@ -147,7 +147,7 @@ class _WelcomePageState extends State<WelcomePage> {
                                       ),
                                     ),
 
-                                    // AUTO: fährt von rechts herein
+                                    // car: drives into the frame from the right side
                                     AnimatedPositioned(
                                       duration: const Duration(milliseconds: 900),
                                       curve: Curves.easeOutCubic,
@@ -169,7 +169,7 @@ class _WelcomePageState extends State<WelcomePage> {
                           ),
                         ],
                       )
-                    : Column(
+                    : Column( //column view
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Text(
@@ -183,12 +183,12 @@ class _WelcomePageState extends State<WelcomePage> {
                           ),
                           const SizedBox(height: 12),
                           const Text(
-                            'Choose your next mode to start',
+                            'Choose your mode to start',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.white70),
                           ),
                           const SizedBox(height: 18),
-                          // Responsive Bilder: nebeneinander auf breiten Portrait-Geräten
+                          // pictures construced netxt to each other
                           LayoutBuilder(builder: (context, inner) {
                             final wide = inner.maxWidth > 600;
                             if (wide) {
@@ -261,27 +261,28 @@ class ModeSelectionPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Choose mode')),
+      //List of all mdoes for choosing 
       body: ListView(
         children: [
           ListTile(
             leading: const Icon(Icons.play_arrow),
             title: const Text('Driving'),
             subtitle: const Text('Drive with easy controls'),
-            onTap: () => Navigator.pushNamed(context, '/modeA'),
+            onTap: () => Navigator.pushNamed(context, '/drive'),
           ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.videogame_asset),
             title: const Text('Tracking room'),
             subtitle: const Text('Track the room to drive inside without crashing'),
-            onTap: () => Navigator.pushNamed(context, '/modeB'),
+            onTap: () => Navigator.pushNamed(context, '/scan'),
           ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.brush),
             title: const Text('Drawing the route'),
             subtitle: const Text('Draw the route the car should follow'),
-            onTap: () => Navigator.pushNamed(context, '/modeC'),
+            onTap: () => Navigator.pushNamed(context, '/draw'),
           ),
         ],
       ),
@@ -289,7 +290,7 @@ class ModeSelectionPage extends StatelessWidget {
   }
 }
 
-/* ---------------- ModePage (generic) ---------------- */
+/* ---------------- ModePage ---------------- */
 class ModePage extends StatelessWidget {
   final String title;
   const ModePage({super.key, required this.title});
@@ -300,7 +301,7 @@ class ModePage extends StatelessWidget {
       appBar: AppBar(title: Text(title)),
       body: Center(
         child: Text(
-          '$title - Hier kommt der Inhalt für diesen Modus.',
+          '$title',
           textAlign: TextAlign.center,
         ),
       ),
@@ -316,6 +317,7 @@ class DrivingPage extends StatefulWidget {
   State<DrivingPage> createState() => _DrivingPageState();
 }
 
+//Setting up all Variables for Beginn 
 class _DrivingPageState extends State<DrivingPage> {
   Timer? _timer;
   Timer? _reverseTimer;
@@ -324,12 +326,53 @@ class _DrivingPageState extends State<DrivingPage> {
   double brake = 0.0; // 0..1
   double steering = 0.0; // -1..1
 
-  // Button state flags
+  // Button beginning state flags 
   bool accelerating = false;
   bool braking = false;
   bool steerLeft = false;
   bool steerRight = false;
   bool reversing = false; // enabled after long brake
+  bool lightOn = false; //Lights switched off 
+
+    // New: invert controls toggle
+  bool controlsInverted = false;
+
+  // --- Input wrappers that respect the inverted flag ---
+  void _inputAccelerate(bool down) {
+    // If inverted, accelerate input becomes braking, otherwise normal
+    if (controlsInverted) {
+      // behave like brake press
+      _pressBrake(down, fromVirtual: true);
+    } else {
+      _pressAccelerate(down, fromVirtual: true);
+    }
+  }
+
+  void _inputBrake(bool down) {
+    if (controlsInverted) {
+      // behave like accelerate press
+      _pressAccelerate(down, fromVirtual: true);
+    } else {
+      _pressBrake(down, fromVirtual: true);
+    }
+  }
+
+  void _inputSteerLeft(bool down) {
+    if (controlsInverted) {
+      _pressSteerRight(down);
+    } else {
+      _pressSteerLeft(down);
+    }
+  }
+
+  void _inputSteerRight(bool down) {
+    if (controlsInverted) {
+      _pressSteerLeft(down);
+    } else {
+      _pressSteerRight(down);
+    }
+  }
+
 
   @override
   void initState() {
@@ -373,8 +416,8 @@ class _DrivingPageState extends State<DrivingPage> {
     speed += accel * dt * 3.6; // skaliere zu km/h
 
     // Begrenzungen: Rückwärts langsamer (−80..320)
-    if (speed > 320) speed = 320;
-    if (speed < -80) speed = -80;
+    if (speed > 30) speed = 30;
+    if (speed < -30) speed = -30;
 
     // kleine Deadzone: wenn nahe 0 und kein throttle/brake, setze exakt 0
     if (!accelerating && !braking && !reversing && speed.abs() < 0.5) {
@@ -395,32 +438,26 @@ class _DrivingPageState extends State<DrivingPage> {
   String _rpmText() => '${(speed.abs() * 30).toInt()} rpm';
 
   // Helfer für gedrückt/losgelassen Verhalten
-  void _pressAccelerate(bool down) {
-    setState(() {
-      accelerating = down;
-      if (down) reversing = false; // weg vom Rückwärtsgang bei Gas
-    });
+  void _pressAccelerate(bool down, {bool fromVirtual = false}) {
+  setState(() {
+    accelerating = down;
+    if (down) reversing = false;
+  });
   }
 
-  void _pressBrake(bool down) {
+  void _pressBrake(bool down, {bool fromVirtual = false}) {
     if (down) {
-      // Start Long-Press-Timer -> wenn gehalten und Auto steht fast, aktiviere Rückwärtsgang
       setState(() => braking = true);
       _reverseTimer?.cancel();
       _reverseTimer = Timer(const Duration(milliseconds: 700), () {
-        // nur einschalten, wenn weitergehalten wird und Geschwindigkeit nahe 0
         if (braking && speed.abs() < 1.0) {
-          setState(() {
-            reversing = true;
-            // ensure immediate reverse motion next physics tick
-          });
+          setState(() => reversing = true);
         }
       });
     } else {
       _reverseTimer?.cancel();
       setState(() {
         braking = false;
-        // wenn Bremse losgelassen, beende Rückwärtsmodus (falls aktiv)
         reversing = false;
       });
     }
@@ -432,8 +469,8 @@ class _DrivingPageState extends State<DrivingPage> {
   Widget _controlButton({
     required Widget child,
     required void Function(bool) onHold,
-    double width = 120,
-    double height = 56,
+    double width = 240,
+    double height = 120,
     Color? color,
   }) {
     return GestureDetector(
@@ -444,7 +481,7 @@ class _DrivingPageState extends State<DrivingPage> {
       child: Container(
         width: width,
         height: height,
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+        margin: const EdgeInsets.symmetric(vertical: 15, horizontal: 15),
         decoration: BoxDecoration(
           color: color ?? Colors.white12,
           borderRadius: BorderRadius.circular(10),
@@ -516,6 +553,15 @@ class _DrivingPageState extends State<DrivingPage> {
                             color: Colors.black26,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: Colors.white24),
+                            boxShadow: lightOn
+                              ? [
+                                  BoxShadow(
+                                    color: const Color.fromARGB(255, 239, 4, 4).withOpacity(0.7),
+                                    blurRadius: 38,
+                                    spreadRadius: 8,
+                                  ),
+                                ]
+                              : [],
                           ),
                           child: Center(
                             child: Icon(Icons.directions_car_filled, size: 80, color: Colors.white70),
@@ -538,25 +584,45 @@ class _DrivingPageState extends State<DrivingPage> {
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // Linke Seite
                       _controlButton(
-                        onHold: _pressSteerLeft,
+                        onHold: controlsInverted ? _inputAccelerate : _inputSteerLeft,
                         width: 110,
                         height: 60,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [Icon(Icons.chevron_left, color: Colors.white), SizedBox(width: 6), Text('Left', style: TextStyle(color: Colors.white))],
+                          children: [
+                            Icon(
+                              controlsInverted ? Icons.arrow_upward : Icons.chevron_left ,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              controlsInverted ? 'Accelerate' : 'Left',
+                              style: TextStyle(color: Colors.white),
+                            )
+                          ],
                         ),
-                        color: Colors.white12,
                       ),
+
                       _controlButton(
-                        onHold: _pressSteerRight,
+                        onHold: controlsInverted ? _inputBrake : _inputSteerRight,
                         width: 110,
                         height: 60,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [Icon(Icons.chevron_right, color: Colors.white), SizedBox(width: 6), Text('Right', style: TextStyle(color: Colors.white))],
+                          children: [
+                            Icon(
+                              controlsInverted ? Icons.arrow_downward : Icons.chevron_right,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              controlsInverted ? 'Brake' : 'Right',
+                              style: const TextStyle(color: Colors.white),
+                            )
+                          ],
                         ),
-                        color: Colors.white12,
                       ),
                     ],
                   ),
@@ -572,26 +638,43 @@ class _DrivingPageState extends State<DrivingPage> {
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // Rechte Seite
                       _controlButton(
-                        onHold: _pressAccelerate,
-                        width: 130,
-                        height: 70,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [Icon(Icons.arrow_upward, color: Colors.white), SizedBox(width: 8), Text('Accelerate', style: TextStyle(color: Colors.white))],
-                        ),
-                        color: Colors.red.shade700.withOpacity(0.16),
-                      ),
-                      _controlButton(
-                        onHold: _pressBrake,
+                        onHold: controlsInverted ? _inputSteerLeft : _inputAccelerate,
                         width: 130,
                         height: 70,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.arrow_downward, color: Colors.white),
+                            Icon(
+                              controlsInverted ? Icons.chevron_left : Icons.arrow_upward,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              controlsInverted ? 'Left' : 'Accelerate',
+                              style: const TextStyle(color: Colors.white),
+                            )
+                          ]
+                        ),
+                      ), 
+
+                      _controlButton(
+                        onHold: controlsInverted ? _inputSteerRight : _inputBrake,
+                        width: 130,
+                        height: 70,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              controlsInverted ? Icons.chevron_right : Icons.arrow_downward,
+                              color: Colors.white,
+                            ),
                             const SizedBox(width: 8),
-                            Text(reversing ? 'Reverse' : 'Brake', style: const TextStyle(color: Colors.white)),
+                            Text(
+                              controlsInverted ? 'Right' : (reversing ? 'Reverse' : 'Brake'),
+                              style: const TextStyle(color: Colors.white),
+                            )
                           ],
                         ),
                         color: reversing ? Colors.orange.withOpacity(0.22) : Colors.black.withOpacity(0.18),
@@ -601,7 +684,7 @@ class _DrivingPageState extends State<DrivingPage> {
                 ),
               ),
 
-              // Fußzeile: Utility-Buttons (unten zentriert)
+              // Fußzeile: Utility-Buttons (bottom)
               Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
@@ -612,29 +695,31 @@ class _DrivingPageState extends State<DrivingPage> {
                       ElevatedButton.icon(
                         onPressed: () {
                           setState(() {
-                            throttle = 0;
-                            brake = 0;
-                            speed = 0;
-                            accelerating = braking = steerLeft = steerRight = reversing = false;
+                            controlsInverted = !controlsInverted;
                           });
                         },
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Reset'),
+                        icon: Icon(
+                          Icons.compare_arrows,
+                          color: controlsInverted ? const Color.fromARGB(255, 255, 0, 0) : null,
+                        ),
+                        label: Text(
+                          controlsInverted ? 'Inverted ON' : 'Invert Controls',
+                        ),
                       ),
+
                       const SizedBox(width: 12),
                       ElevatedButton.icon(
                         onPressed: () {
-                          setState(() {
-                            accelerating = true;
-                            braking = false;
-                            reversing = false;
-                          });
-                          Future.delayed(const Duration(milliseconds: 300), () {
-                            setState(() => accelerating = false);
+                         setState( (){
+                            lightOn = !lightOn; 
+                            //Hardwarecode einsetzten 
                           });
                         },
-                        icon: const Icon(Icons.rocket_launch),
-                        label: const Text('Burst'),
+                        icon: Icon(
+                        lightOn ? Icons.lightbulb : Icons.lightbulb_outline,
+                        color : lightOn ? Colors.yellow : Colors.white, 
+                        ),   
+                        label: Text(lightOn ? 'Light on' : 'Light off'),
                       ),
                     ],
                   ),
@@ -648,7 +733,7 @@ class _DrivingPageState extends State<DrivingPage> {
   }
 }
 
-/* ---------------- TrackingRoomPage (Beispiel-Modus B) ---------------- */
+/* ---------------- TrackingRoomPage (Scan) ---------------- */
 class TrackingRoomPage extends StatefulWidget {
   const TrackingRoomPage({super.key});
 
@@ -737,7 +822,7 @@ class _TrackingRoomPageState extends State<TrackingRoomPage> {
   }
 }
 
-/* ---------------- DrawingPage (Beispiel-Modus C) ---------------- */
+/* ---------------- DrawingPage (Draw) ---------------- */
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
 
@@ -768,20 +853,51 @@ class _DrawingPageState extends State<DrawingPage> {
                 child: Text('Draw a path on the screen. Use Clear to reset.', style: TextStyle(color: Colors.white70)),
               ),
               Expanded(
-                child: GestureDetector(
-                  onPanUpdate: (details) {
-                    setState(() {
-                      final box = context.findRenderObject() as RenderBox;
-                      _points.add(box.globalToLocal(details.globalPosition));
-                    });
-                  },
-                  onPanEnd: (_) => _points.add(Offset.zero),
-                  child: CustomPaint(
-                    painter: _RoutePainter(_points),
-                    child: Container(),
+                child: Container(
+                  margin: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.white,
+                      width: 1,
+                    ),
+                    color: const Color.fromARGB(52, 255, 255, 255),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ),
+               
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return GestureDetector(
+                        onPanUpdate: (details) {
+                          setState(() {
+                            final box = context.findRenderObject() as RenderBox;
+                            final localPos = box.globalToLocal(details.globalPosition);
+
+                            // Grenzen des Zeichenfelds
+                            final minX = 0.0;
+                            final minY = 0.0;
+                            final maxX = constraints.maxWidth;
+                            final maxY = constraints.maxHeight;
+
+                            // Nur hinzufügen, wenn innerhalb
+                            if (localPos.dx >= minX &&
+                                localPos.dx <= maxX &&
+                                localPos.dy >= minY &&
+                                localPos.dy <= maxY) {
+                              _points.add(localPos);
+                            }
+                          });
+                        },
+                        onPanEnd: (_) => _points.add(Offset.zero),
+                        child: CustomPaint(
+                          painter: _RoutePainter(_points),
+                          child: Container(),
+                        ),
+                      );
+                    },
+                  ),
+                ), 
               ),
+
               Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Row(
@@ -818,7 +934,7 @@ class _RoutePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paintLine = Paint()..color = Colors.yellowAccent..strokeWidth = 4.0..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
+    final paintLine = Paint()..color = const Color.fromARGB(255, 44, 27, 27)..strokeWidth = 4.0..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
     final paintDot = Paint()..color = Colors.white..style = PaintingStyle.fill;
     final path = Path();
     bool started = false;
