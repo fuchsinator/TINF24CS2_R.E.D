@@ -53,7 +53,6 @@ void handleMove() {
   webServer.sendHeader("Access-Control-Allow-Origin", "*"); // Allow any origin
   webServer.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   webServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-
   webServer.send(200, "text/plain", "OK");
 }
 
@@ -61,21 +60,19 @@ void handleMove() {
 /*Drive function:#
   direction: no move = 0; forwards = 1; backwards = 2
   turn: no turn = 0; left = 1; right = 2
-  speed: from 1-100
-  duration: in ms
 */
 void drive(int direction, int turn){
-  digitalWrite(Motor_B_green, HIGH);
-  digitalWrite(Motor_A_white, HIGH);
   //turning
   if(turn == 0) //no turn
   {
     digitalWrite(Motor_A_white, LOW);
   }else if (turn == 1) //left
   {
+    digitalWrite(Motor_A_white, HIGH);
     digitalWrite(Motor_A_blue, HIGH);
   }else if (turn == 2) //right
   {
+    digitalWrite(Motor_A_white, HIGH);
     digitalWrite(Motor_A_blue, LOW);
   }else
   {
@@ -89,9 +86,11 @@ void drive(int direction, int turn){
     digitalWrite(Motor_B_green, LOW);
   }else if(direction == 1) //forwards
   {
+    digitalWrite(Motor_B_green, HIGH);
     digitalWrite(Motor_B_yellow, LOW);
   }else if (direction == 2) //backwards
   {
+    digitalWrite(Motor_B_green, HIGH);
     digitalWrite(Motor_B_yellow, HIGH);
   }else
   {
@@ -99,9 +98,8 @@ void drive(int direction, int turn){
       Serial.print("no direction option set");
     }
   }
-  delay(5);
-  digitalWrite(Motor_B_green, LOW);
-  digitalWrite(Motor_A_white, LOW);
+  //digitalWrite(Motor_B_green, LOW);
+  //digitalWrite(Motor_A_white, LOW);
 }
 
 void setup() {
@@ -138,4 +136,5 @@ void loop() {
   webServer.handleClient();
   handleMove();
   drive(currentDirection, currentTurn); // continuously update motor state
+  delay(100);
 }
