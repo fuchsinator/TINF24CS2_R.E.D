@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'esp_control.dart';
 
 void main() => runApp(const MyApp());
 
@@ -23,6 +24,7 @@ class MyApp extends StatelessWidget {
         '/drive': (ctx) => const DrivingPage(),
         '/scan': (ctx) => const TrackingRoomPage(),
         '/draw': (ctx) => const DrawingPage(),
+        '/esp': (ctx) => const CarControlPage(),
       },
     );
   }
@@ -283,6 +285,13 @@ class ModeSelectionPage extends StatelessWidget {
             title: const Text('Drawing the route'),
             subtitle: const Text('Draw the route the car should follow'),
             onTap: () => Navigator.pushNamed(context, '/draw'),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.settings_remote),
+            title: const Text('ESP Control'),
+            subtitle: const Text('Control the ESP car (HTTP)'),
+            onTap: () => Navigator.pushNamed(context, '/esp'),
           ),
         ],
       ),
