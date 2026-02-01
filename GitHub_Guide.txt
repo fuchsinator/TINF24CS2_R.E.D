@@ -5,7 +5,7 @@ For working (tab works!):
   git switch "Branchname" -> switch branch
   git merge "branch" -> puts the "branch" into current branch
     example: git merge main -> all from main is now in current branch
-
+    after that don't forget to execute git push
 
 For pushing:
   git add . -> adds everything in folder
