@@ -1,11 +1,21 @@
-For cloning:
-git clone "url"
-
+For working (tab works!):
+  git clone "url" -> clones repo
+  git status -> gets a status on the branch: Name, commits etc.
+  git restore "filename" -> restore file if deleted on accident, but only BEFORE push
+  git switch "Branchname" -> switch branch
+  git merge "branch" -> puts the "branch" into current branch
+    example: git merge main -> all from main is now in current branch
+    after that don't forget to execute git push
 
 For pushing:
-git add . //adds everything in folder
-git status //see git status
-git diff //see whats different
-git commit -m "commit massage"
-git push
+  git add . -> adds everything in folder
+  git status -> see git status
+  git diff -> see whats different
+  git commit -m "commit massage"
+  git push
 
+Git works in 4 Stages:
+  1. Local on your computer: your current enviroment, changes are only local
+  2. Staging area 1: git add . a staging area with everything that you want to push and publish for everyone. Here you can choose what to share
+  3. Commiting it with a massage: git commit -m "Massage" is commiting the files with a massage but does not publish it yet
+  4. Publishing it for everyone: git push publishes all the files from add with the massage from commit for everyone to see

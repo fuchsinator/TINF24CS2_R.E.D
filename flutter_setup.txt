@@ -1,10 +1,18 @@
-Flutter:
+If Flutter is already set up:
+	flutter doctor
+	pubspec.yaml -> copy from github
+	flutter pub get -> get the dependecies from yaml
+	lib/main.dart -> copy from github
+	flutter run -d chrome
+	connect esp to notebook
+
+New to Flutter:
 	Download: https://docs.flutter.dev/install/manual -> follow the steps add Env Var
 	check:
 		flutter --version
 		dart --version
 	flutter doctor
-	flutter create esp_car_control
+	flutter create red
 	cd esp_car_control
 	open in vs code
 	pubspec.yaml > dependencies:
