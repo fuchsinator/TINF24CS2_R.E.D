@@ -3,7 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
-void main() => runApp(const MyApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // start connection manager
+  ConnectionManager.instance;
+  runApp(const MyApp());
+}
 
 /// ================= ESP CAR CONTROLLER =================
 
@@ -64,6 +69,64 @@ void handleKey(RawKeyEvent event) {
   }
 
   updateCommand();
+}
+
+// ---------------- Connection Manager & UI ----------------
+
+class ConnectionManager {
+  ConnectionManager._internal() {
+    _start();
+  }
+
+  static final ConnectionManager instance = ConnectionManager._internal();
+
+  final ValueNotifier<bool> connected = ValueNotifier<bool>(false);
+  Timer? _timer;
+
+  void _start() {
+    // initial quick check
+    _checkNow();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _checkNow());
+  }
+
+  Future<void> _checkNow() async {
+    try {
+      final url = Uri.parse('http://10.10.10.10/');
+      final resp = await http.get(url).timeout(const Duration(seconds: 1));
+      connected.value = resp.statusCode < 500;
+    } catch (_) {
+      connected.value = false;
+    }
+  }
+
+  void dispose() {
+    _timer?.cancel();
+    connected.dispose();
+  }
+}
+
+class ConnectionStatus extends StatelessWidget {
+  const ConnectionStatus({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: ConnectionManager.instance.connected,
+      builder: (context, connected, _) {
+        return Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: IconButton(
+            tooltip: connected ? 'Online' : 'Offline',
+            onPressed: () => ConnectionManager.instance._checkNow(),
+            icon: Icon(
+              connected ? Icons.check_circle : Icons.cancel,
+              color: connected ? Colors.greenAccent : Colors.redAccent,
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -628,7 +691,11 @@ class _DrivingPageState extends State<DrivingPage> {
       focusNode: _focusNode,
       onKey: handleKey,
       child: Scaffold(
-        appBar: AppBar(title: const Text('Driving'), centerTitle: true),
+        appBar: AppBar(
+          title: const Text('Driving'),
+          centerTitle: true,
+          actions: const [ConnectionStatus()],
+        ),
         body: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -936,7 +1003,10 @@ class _TrackingRoomPageState extends State<TrackingRoomPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Tracking Room')),
+      appBar: AppBar(
+        title: const Text('Tracking Room'),
+        actions: const [ConnectionStatus()],
+      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -1035,7 +1105,10 @@ class _DrawingPageState extends State<DrawingPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Draw Route')),
+      appBar: AppBar(
+        title: const Text('Draw Route'),
+        actions: const [ConnectionStatus()],
+      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
