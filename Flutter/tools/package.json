@@ -1,0 +1,13 @@
+{
+  "name": "ws-proxy",
+  "version": "1.0.0",
+  "description": "WebSocket -> HTTP proxy for testing R.E.D.",
+  "main": "ws_proxy.js",
+  "scripts": {
+    "start": "node ws_proxy.js"
+  },
+  "dependencies": {
+    "ws": "^8.13.0",
+    "node-fetch": "^2.6.7"
+  }
+}
