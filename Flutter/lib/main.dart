@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as ws_status;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,15 +15,8 @@ void main() {
 /// ================= ESP CAR CONTROLLER =================
 
 void sendCommand(String cmd) async {
-  try {
-    final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
-    final response = await http.get(url);
-    // ignore: avoid_print
-    print('Sent: $cmd | Response: ${response.body}');
-  } catch (e) {
-    // ignore: avoid_print
-    print('Error sending command: $e');
-  }
+  // delegate to ConnectionManager (WebSocket). Keep HTTP fallback briefly.
+  ConnectionManager.instance.send(cmd);
 }
 
 /// aktive Commands (z.B forward + left gleichzeitig)
@@ -81,27 +76,104 @@ class ConnectionManager {
   static final ConnectionManager instance = ConnectionManager._internal();
 
   final ValueNotifier<bool> connected = ValueNotifier<bool>(false);
-  Timer? _timer;
+
+  WebSocketChannel? _channel;
+  Timer? _reconnectTimer;
+  int _reconnectSeconds = 1;
+  final String wsUrl = 'ws://10.10.10.10:81/';
+  final String wsFallback = 'ws://localhost:8080/';
 
   void _start() {
-    // initial quick check
-    _checkNow();
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _checkNow());
+    _connect();
   }
 
-  Future<void> _checkNow() async {
+  Future<void> connectNow() async {
+    await _connect();
+  }
+
+  Future<void> _connect() async {
     try {
-      final url = Uri.parse('http://10.10.10.10/');
-      final resp = await http.get(url).timeout(const Duration(seconds: 1));
-      connected.value = resp.statusCode < 500;
-    } catch (_) {
-      connected.value = false;
+      _channel?.sink.close(ws_status.goingAway);
+    } catch (_) {}
+
+    try {
+      // try main WS URL first
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      connected.value = true;
+      _reconnectSeconds = 1;
+
+      _channel!.stream.listen((message) {
+        // handle incoming messages if needed
+        // ignore: avoid_print
+        print('WS recv: $message');
+      }, onDone: () {
+        connected.value = false;
+        _scheduleReconnect();
+      }, onError: (e) {
+        connected.value = false;
+        _scheduleReconnect();
+      });
+      return;
+    } catch (e) {
+      // try fallback (local proxy) for testing
+      try {
+        _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
+        connected.value = true;
+        _reconnectSeconds = 1;
+
+        _channel!.stream.listen((message) {
+          print('WS recv: $message');
+        }, onDone: () {
+          connected.value = false;
+          _scheduleReconnect();
+        }, onError: (e) {
+          connected.value = false;
+          _scheduleReconnect();
+        });
+        return;
+      } catch (e2) {
+        connected.value = false;
+        _scheduleReconnect();
+      }
     }
   }
 
+  void _scheduleReconnect() {
+    _reconnectTimer?.cancel();
+    final seconds = _reconnectSeconds;
+    _reconnectTimer = Timer(Duration(seconds: seconds), () => _connect());
+    _reconnectSeconds = (_reconnectSeconds * 2).clamp(1, 30);
+  }
+
   void dispose() {
-    _timer?.cancel();
+    try {
+      _channel?.sink.close(ws_status.normalClosure);
+    } catch (_) {}
+    _reconnectTimer?.cancel();
     connected.dispose();
+  }
+
+  void send(String cmd) {
+    try {
+      if (_channel != null) {
+        _channel!.sink.add(cmd);
+        // ignore: avoid_print
+        print('WS sent: $cmd');
+      } else {
+        // fallback to HTTP
+        final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
+        http.get(url).then((r) {
+          // ignore: avoid_print
+          print('HTTP fallback sent: $cmd | ${r.statusCode}');
+        }).catchError((e) {
+          // ignore: avoid_print
+          print('Fallback error: $e');
+        });
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('Send error: $e');
+    }
   }
 }
 
@@ -117,7 +189,7 @@ class ConnectionStatus extends StatelessWidget {
           padding: const EdgeInsets.only(right: 8.0),
           child: IconButton(
             tooltip: connected ? 'Online' : 'Offline',
-            onPressed: () => ConnectionManager.instance._checkNow(),
+            onPressed: () => ConnectionManager.instance.connectNow(),
             icon: Icon(
               connected ? Icons.check_circle : Icons.cancel,
               color: connected ? Colors.greenAccent : Colors.redAccent,
