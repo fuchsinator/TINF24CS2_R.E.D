@@ -34,37 +34,6 @@ void updateCommand() {
 }
 
 /// Keyboard Support (F12 Browser!!)
-void handleKey(RawKeyEvent event) {
-  final key = event.logicalKey;
-  final isDown = event is RawKeyDownEvent;
-
-  if (keyPressed[key] == isDown) return;
-  keyPressed[key] = isDown;
-
-  switch (key.keyLabel) {
-    case 'Arrow Up':
-      isDown ? activeCommands.add('forward') : activeCommands.remove('forward');
-      break;
-    case 'Arrow Down':
-      isDown
-          ? activeCommands.add('backward')
-          : activeCommands.remove('backward');
-      break;
-    case 'Arrow Left':
-      isDown ? activeCommands.add('left') : activeCommands.remove('left');
-      break;
-    case 'Arrow Right':
-      isDown ? activeCommands.add('right') : activeCommands.remove('right');
-      break;
-    case ' ':
-      if (isDown) activeCommands.clear();
-      break;
-    default:
-      break;
-  }
-
-  updateCommand();
-}
 
 // ---------------- Connection Manager & UI ----------------
 
@@ -102,17 +71,21 @@ class ConnectionManager {
       connected.value = true;
       _reconnectSeconds = 1;
 
-      _channel!.stream.listen((message) {
-        // handle incoming messages if needed
-        // ignore: avoid_print
-        print('WS recv: $message');
-      }, onDone: () {
-        connected.value = false;
-        _scheduleReconnect();
-      }, onError: (e) {
-        connected.value = false;
-        _scheduleReconnect();
-      });
+      _channel!.stream.listen(
+        (message) {
+          // handle incoming messages if needed
+          // ignore: avoid_print
+          print('WS recv: $message');
+        },
+        onDone: () {
+          connected.value = false;
+          _scheduleReconnect();
+        },
+        onError: (e) {
+          connected.value = false;
+          _scheduleReconnect();
+        },
+      );
       return;
     } catch (e) {
       // try fallback (local proxy) for testing
@@ -121,15 +94,19 @@ class ConnectionManager {
         connected.value = true;
         _reconnectSeconds = 1;
 
-        _channel!.stream.listen((message) {
-          print('WS recv: $message');
-        }, onDone: () {
-          connected.value = false;
-          _scheduleReconnect();
-        }, onError: (e) {
-          connected.value = false;
-          _scheduleReconnect();
-        });
+        _channel!.stream.listen(
+          (message) {
+            print('WS recv: $message');
+          },
+          onDone: () {
+            connected.value = false;
+            _scheduleReconnect();
+          },
+          onError: (e) {
+            connected.value = false;
+            _scheduleReconnect();
+          },
+        );
         return;
       } catch (e2) {
         connected.value = false;
@@ -162,13 +139,16 @@ class ConnectionManager {
       } else {
         // fallback to HTTP
         final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
-        http.get(url).then((r) {
-          // ignore: avoid_print
-          print('HTTP fallback sent: $cmd | ${r.statusCode}');
-        }).catchError((e) {
-          // ignore: avoid_print
-          print('Fallback error: $e');
-        });
+        http
+            .get(url)
+            .then((r) {
+              // ignore: avoid_print
+              print('HTTP fallback sent: $cmd | ${r.statusCode}');
+            })
+            .catchError((e) {
+              // ignore: avoid_print
+              print('Fallback error: $e');
+            });
       }
     } catch (e) {
       // ignore: avoid_print
@@ -542,6 +522,65 @@ class DrivingPage extends StatefulWidget {
 
 //Setting up all Variables for Beginn
 class _DrivingPageState extends State<DrivingPage> {
+  void _handleKey(RawKeyEvent event) {
+    final key = event.logicalKey;
+    final isDown = event is RawKeyDownEvent;
+
+    if (keyPressed[key] == isDown) return;
+    keyPressed[key] = isDown;
+
+    // handle arrows and WASD
+    switch (key) {
+      case LogicalKeyboardKey.arrowUp:
+      case LogicalKeyboardKey.keyW:
+        if (isDown) {
+          activeCommands.add('forward');
+          _pressAccelerate(true);
+        } else {
+          activeCommands.remove('forward');
+          _pressAccelerate(false);
+        }
+        break;
+      case LogicalKeyboardKey.arrowDown:
+      case LogicalKeyboardKey.keyS:
+        if (isDown) {
+          activeCommands.add('backward');
+          _pressBrake(true);
+        } else {
+          activeCommands.remove('backward');
+          _pressBrake(false);
+        }
+        break;
+      case LogicalKeyboardKey.arrowLeft:
+      case LogicalKeyboardKey.keyA:
+        if (isDown) {
+          activeCommands.add('left');
+          _pressSteerLeft(true);
+        } else {
+          activeCommands.remove('left');
+          _pressSteerLeft(false);
+        }
+        break;
+      case LogicalKeyboardKey.arrowRight:
+      case LogicalKeyboardKey.keyD:
+        if (isDown) {
+          activeCommands.add('right');
+          _pressSteerRight(true);
+        } else {
+          activeCommands.remove('right');
+          _pressSteerRight(false);
+        }
+        break;
+      case LogicalKeyboardKey.space:
+        if (isDown) activeCommands.clear();
+        break;
+      default:
+        break;
+    }
+
+    updateCommand();
+  }
+
   Timer? _timer;
   Timer? _reverseTimer;
   double speed = 0.0; // positive = forward, negative = reverse (km/h)
@@ -761,7 +800,7 @@ class _DrivingPageState extends State<DrivingPage> {
     final theme = Theme.of(context);
     return RawKeyboardListener(
       focusNode: _focusNode,
-      onKey: handleKey,
+      onKey: _handleKey,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Driving'),
