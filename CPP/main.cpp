@@ -1,11 +1,11 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
+#include <WebSocketsServer.h>
 
 // WIFI parameters
 #define WIFI_SSID "R.E.D"
-IPAddress apIP(10, 10, 10, 10); // IP of the ESP AP
-ESP8266WebServer webServer(80);  // HTTP server
+IPAddress apIP(10,10,10,10);
+WebSocketsServer ws(81); // WebSocket port
 
 // Motor pins
 const int Motor_A_white = D1; // On/Off
@@ -19,41 +19,18 @@ int currentTurn = 0;      // 0 = straight, 1 = left, 2 = right
 
 #define DEBUGGING true
 
-// Function to handle /move requests
-void handleMove() {
-  if (!webServer.hasArg("cmd")) {
-    webServer.send(400, "text/plain", "No command provided");
-    if(DEBUGGING) Serial.println("Received /move request but no cmd argument");
-    return;
+void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
+  if(type == WStype_TEXT) {
+    String msg = String((char*)payload);
+    Serial.println("WS recv: "+msg);
+    // parse exactly as HTTP handler did:
+    if(msg.indexOf("forward")>=0) currentDirection=1;
+    if(msg.indexOf("backward")>=0) currentDirection=2;
+    if(msg.indexOf("left")>=0) currentTurn=1;
+    if(msg.indexOf("right")>=0) currentTurn=2;
+    if(msg.indexOf("stop")>=0){ currentDirection=0; currentTurn=0;}
+    ws.sendTXT(num, "ACK");           // optional ack
   }
-
-  String cmds = webServer.arg("cmd"); // e.g., "forward,left"
-  if(DEBUGGING){
-    Serial.print("Received command(s): ");
-    Serial.println(cmds);
-  }
-
-  if (cmds.indexOf("forward") >= 0) currentDirection = 1;
-  if (cmds.indexOf("backward") >= 0) currentDirection = 2;
-  if (cmds.indexOf("left") >= 0) currentTurn = 1;
-  if (cmds.indexOf("right") >= 0) currentTurn = 2;
-  if (cmds.indexOf("stop") >= 0){
-    currentDirection = 0;
-    currentTurn = 0;
-  }
-
-  if(DEBUGGING){
-    Serial.print("Parsed direction: ");
-    Serial.print(currentDirection);
-    Serial.print(", turn: ");
-    Serial.println(currentTurn);
-  }
-
-  // **Add CORS header**
-  webServer.sendHeader("Access-Control-Allow-Origin", "*"); // Allow any origin
-  webServer.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  webServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-  webServer.send(200, "text/plain", "OK");
 }
 
 // Minimal drive function
@@ -113,18 +90,10 @@ void setup() {
 
   // Setup AP
   WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(WIFI_SSID, NULL, 1, false); //hidden=true
-
-  // Setup /move endpoint
-  webServer.on("/move", handleMove);
-  webServer.on("/move", HTTP_OPTIONS, []() {
-    webServer.sendHeader("Access-Control-Allow-Origin", "*");
-    webServer.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    webServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-    webServer.send(204); // No Content
-  });
-  webServer.begin();
+  WiFi.softAPConfig(apIP,apIP, IPAddress(255,255,255,0));
+  WiFi.softAP(WIFI_SSID);
+  ws.begin();
+  ws.onEvent(handleWSEvent);
 
   if(DEBUGGING){
     Serial.println("ESP8266 server is online");
@@ -133,8 +102,7 @@ void setup() {
 }
 
 void loop() {
-  webServer.handleClient();
-  handleMove();
-  drive(currentDirection, currentTurn); // continuously update motor state
+  ws.loop();
+  drive(currentDirection,currentTurn);
   delay(100);
 }
