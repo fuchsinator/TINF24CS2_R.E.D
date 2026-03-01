@@ -47,12 +47,21 @@ class ConnectionManager {
   final ValueNotifier<bool> connected = ValueNotifier<bool>(false);
 
   WebSocketChannel? _channel;
-  Timer? _reconnectTimer;
-  int _reconnectSeconds = 1;
+  Timer? _checkTimer;
+  bool _connecting = false;
+  String? currentUrl; // which endpoint we're talking to
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
 
   void _start() {
+    // start periodic watcher: every 10 s try to connect if we're offline
+    _checkTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!connected.value && !_connecting) {
+        _connect();
+      }
+    });
+
+    // also attempt an immediate connection on startup
     _connect();
   }
 
@@ -61,72 +70,93 @@ class ConnectionManager {
   }
 
   Future<void> _connect() async {
+    if (_connecting) return;
+    _connecting = true;
     try {
       _channel?.sink.close(ws_status.goingAway);
     } catch (_) {}
 
-    try {
-      // try main WS URL first
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      connected.value = true;
-      _reconnectSeconds = 1;
+    // helper to configure listeners on a connected channel
+    // handshake requires a reply from the server before we declare
+    // ourselves "online". default remains offline until that happens.
+    void _setupChannel(WebSocketChannel ch) {
+      connected.value = false;
+      bool handshake = false;
 
-      _channel!.stream.listen(
+      ch.stream.listen(
         (message) {
-          // handle incoming messages if needed
+          // any answer counts as handshake, but we may log it.
+          handshake = true;
           // ignore: avoid_print
           print('WS recv: $message');
+          if (!connected.value) {
+            connected.value = true;
+          }
         },
         onDone: () {
+          handshake = false;
           connected.value = false;
-          _scheduleReconnect();
+          _connecting = false;
+          currentUrl = null;
         },
         onError: (e) {
+          handshake = false;
           connected.value = false;
-          _scheduleReconnect();
+          _connecting = false;
+          currentUrl = null;
         },
       );
+
+      // send ping to solicit a response; esp sketch should reply with "pong"
+      try {
+        ch.sink.add('ping');
+      } catch (_) {}
+
+      // if we haven't received anything after two seconds, consider it
+      // a dead connection and close.
+      Future.delayed(const Duration(seconds: 2), () {
+        if (!handshake) {
+          // drop socket and leave connected=false; periodic timer will
+          // attempt again later
+          try {
+            ch.sink.close(ws_status.goingAway);
+          } catch (_) {}
+          _connecting = false;
+        }
+      });
+    }
+
+    try {
+      // try main WS URL first
+      currentUrl = wsUrl;
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      _setupChannel(_channel!);
+      _connecting = false;
       return;
     } catch (e) {
       // try fallback (local proxy) for testing
       try {
+        currentUrl = wsFallback;
         _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
-        connected.value = true;
-        _reconnectSeconds = 1;
-
-        _channel!.stream.listen(
-          (message) {
-            print('WS recv: $message');
-          },
-          onDone: () {
-            connected.value = false;
-            _scheduleReconnect();
-          },
-          onError: (e) {
-            connected.value = false;
-            _scheduleReconnect();
-          },
-        );
+        _setupChannel(_channel!);
+        _connecting = false;
         return;
       } catch (e2) {
         connected.value = false;
-        _scheduleReconnect();
+        _connecting = false;
+        currentUrl = null;
+        // leave it to periodic timer to try again in 10s
       }
     }
   }
 
-  void _scheduleReconnect() {
-    _reconnectTimer?.cancel();
-    final seconds = _reconnectSeconds;
-    _reconnectTimer = Timer(Duration(seconds: seconds), () => _connect());
-    _reconnectSeconds = (_reconnectSeconds * 2).clamp(1, 30);
-  }
+  // old exponential reconnect logic removed – polling timer handles retries
 
   void dispose() {
     try {
       _channel?.sink.close(ws_status.normalClosure);
     } catch (_) {}
-    _reconnectTimer?.cancel();
+    _checkTimer?.cancel();
     connected.dispose();
   }
 
@@ -168,7 +198,9 @@ class ConnectionStatus extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(right: 8.0),
           child: IconButton(
-            tooltip: connected ? 'Online' : 'Offline',
+            tooltip: connected
+                ? 'Online${ConnectionManager.instance.currentUrl != null ? ' (${ConnectionManager.instance.currentUrl})' : ''}'
+                : 'Offline',
             onPressed: () => ConnectionManager.instance.connectNow(),
             icon: Icon(
               connected ? Icons.check_circle : Icons.cancel,
