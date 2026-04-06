@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <WebSocketsServer.h>
+#include <Wire.h>
+#include <VL53L0X.h>
+
+VL53L0X sensor;
 
 // WIFI parameters
 #define WIFI_SSID "R.E.D"
@@ -12,6 +16,10 @@ const int Motor_A_white = D1; // On/Off
 const int Motor_A_blue = D3;  // Direction
 const int Motor_B_green = D2; // On/Off
 const int Motor_B_yellow = D4;// Direction
+
+//TOF200c-VL53L0X 
+const int SDA_green = D6;// SDA
+const int SCL_white = D5;// SCL
 
 // Current motor state
 int currentDirection = 0; // 0 = stop, 1 = forward, 2 = backward
@@ -79,8 +87,51 @@ void drive(int direction, int turn){
   //digitalWrite(Motor_A_white, LOW);
 }
 
+void sensor_init(bool long_range, bool high_speed) {
+  Wire.begin(SDA_green, SCL_white);   // SDA, SCL
+  delay(1000);           // let sensor boot
+
+  sensor.setTimeout(500);
+
+  if (!sensor.init()) {
+    Serial.println("VL53L0X init FAILED");
+    while (1) {
+      delay(10);
+      yield();          // keep WDT happy
+    }
+  }
+
+  if (long_range) {
+    sensor.setSignalRateLimit(0.1);
+    sensor.setVcselPulsePeriod(
+      VL53L0X::VcselPeriodPreRange, 18);
+    sensor.setVcselPulsePeriod(
+      VL53L0X::VcselPeriodFinalRange, 14);
+  }
+
+  uint32_t budget = high_speed ? 20000 : 200000;
+  sensor.setMeasurementTimingBudget(budget);
+}
+
+int get_distance() {
+  int d = sensor.readRangeSingleMillimeters();
+  if (sensor.timeoutOccurred()) {
+    Serial.println("Sensor timeout");
+    return -1;
+  }
+  if (d<200){
+    drive(0, 0);
+    delay(100);
+    Serial.print("Please turn!");
+  }
+  return d;
+}
+
 void setup() {
   Serial.begin(115200);
+
+  sensor_init(true, false);
+  Serial.println("All good with sensor!");
 
   // Motor pins
   pinMode(Motor_A_white, OUTPUT); digitalWrite(Motor_A_white, LOW);
@@ -105,4 +156,15 @@ void loop() {
   ws.loop();
   drive(currentDirection,currentTurn);
   delay(100);
+
+  int dist = get_distance();
+  if (sensor.timeoutOccurred() || dist >= 8190) {
+    // ungültige Messung
+    Serial.println("no Echo");
+  } else {
+    Serial.print(dist);
+    Serial.println(" mm");
+  }
+  yield();
+
 }
