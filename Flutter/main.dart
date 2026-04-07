@@ -219,7 +219,7 @@ class MyApp extends StatelessWidget {
         '/': (ctx) => const WelcomePage(),
         '/modes': (ctx) => const ModeSelectionPage(),
         '/drive': (ctx) => const DrivingPage(),
-        '/scan': (ctx) => const TrackingRoomPage(),
+        '/scan': (ctx) => const AutonomousDrivingPage(),
         '/draw': (ctx) => const DrawingPage(),
       },
     );
@@ -1055,28 +1055,77 @@ class _DrivingPageState extends State<DrivingPage> {
   }
 }
 
-/* ---------------- TrackingRoomPage (Scan) ---------------- */
-class TrackingRoomPage extends StatefulWidget {
-  const TrackingRoomPage({super.key});
+/* ---------------- AutonomousDrivingPage ---------------- */
+class AutonomousDrivingPage extends StatefulWidget {
+  const AutonomousDrivingPage({super.key});
 
   @override
-  State<TrackingRoomPage> createState() => _TrackingRoomPageState();
+  State<AutonomousDrivingPage> createState() => _AutonomousDrivingPageState();
 }
 
-class _TrackingRoomPageState extends State<TrackingRoomPage> {
-  bool tracking = false;
-  double obstacleX = 0.0; // Beispiel: zufälliges Hindernis
+class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
+  bool isRunning = false;
+  double maxSpeed = 15.0; // km/h
+  
   @override
-  void initState() {
-    super.initState();
-    obstacleX = 0.2;
+  void dispose() {
+    if (isRunning) {
+      _stopAutonomous();
+    }
+    super.dispose();
   }
+  
+  void _startAutonomous() {
+    setState(() => isRunning = true);
+    // Send command to ESP32
+    isRunning ? activeCommands.add("auto") : activeCommands.remove("auto");
 
-  @override
+    updateCommand();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode started'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+  
+  void _stopAutonomous() {
+    setState(() => isRunning = false);
+    // Send stop command
+    isRunning ? activeCommands.add("autoStop") : activeCommands.remove("autoStop");
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode stopped'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+  
+  void _emergencyStop() {
+    setState(() => isRunning = false);
+    // Send emergency stop
+    ConnectionManager.instance.send('emergency_stop');
+    sendCommand('stop');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('EMERGENCY STOP ACTIVATED!'),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+  
+   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tracking Room'),
+        title: const Text('Autonomous Driving'),
+        centerTitle: true,
         actions: const [ConnectionStatus()],
       ),
       body: Container(
@@ -1088,81 +1137,120 @@ class _TrackingRoomPageState extends State<TrackingRoomPage> {
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              SwitchListTile(
-                title: const Text('Enable Tracking'),
-                value: tracking,
-                onChanged: (v) => setState(() => tracking = v),
-              ),
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: Container(
-                      margin: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: Stack(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  
+                  // Sensor Visualization
+                  Card(
+                    color: Colors.black26,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
                         children: [
-                          // fake "camera" background -> correct asset path
-                          Positioned.fill(
-                            child: Image.asset(
-                              'assets/images/Checkerflag.png',
-                              fit: BoxFit.cover,
-                              color: Colors.white24,
-                              colorBlendMode: BlendMode.modulate,
-                            ),
-                          ),
-                          // Beispiel-Hindernis
-                          Positioned(
-                            left:
-                                (MediaQuery.of(context).size.width - 24) *
-                                obstacleX,
-                            top: 60,
-                            child: Icon(
-                              Icons.warning_amber_rounded,
-                              color: tracking
-                                  ? Colors.orangeAccent
-                                  : Colors.white24,
-                              size: 48,
-                            ),
-                          ),
-                          if (!tracking)
-                            const Center(
-                              child: Text(
-                                'Tracking disabled',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            ),
-                          if (tracking)
-                            Positioned(
-                              bottom: 12,
-                              left: 12,
-                              child: ElevatedButton(
-                                onPressed: () => setState(
-                                  () => obstacleX = (obstacleX + 0.15) % 0.8,
+                          const SizedBox(height: 20),
+                          
+                          // Sensor visualization layout
+                          SizedBox(
+                            height: 250,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Car icon in center
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white12,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isRunning ? Colors.greenAccent : Colors.white24,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.directions_car,
+                                    size: 50,
+                                    color: isRunning ? Colors.greenAccent : Colors.white70,
+                                  ),
                                 ),
-                                child: const Text('Simulate Obstacle Move'),
-                              ),
+                              ],
                             ),
+                          ),
                         ],
                       ),
                     ),
                   ),
-                ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // Control Buttons
+                  if (!isRunning)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _startAutonomous,
+                        icon: const Icon(Icons.play_arrow, size: 32),
+                        label: const Text(
+                          'START AUTONOMOUS MODE',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _stopAutonomous,
+                        icon: const Icon(Icons.stop, size: 32),
+                        label: const Text(
+                          'STOP AUTONOMOUS MODE',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color.fromARGB(255, 255, 79, 21),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Emergency Stop Button (always visible)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 60,
+                    child: ElevatedButton.icon(
+                      onPressed: _emergencyStop,
+                      icon: const Icon(Icons.warning, size: 32),
+                      label: const Text(
+                        'EMERGENCY STOP',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 }
-
 /* ---------------- DrawingPage (Draw) ---------------- */
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
