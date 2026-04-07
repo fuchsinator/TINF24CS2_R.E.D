@@ -25,6 +25,8 @@ const int SCL_white = D5;// SCL
 int currentDirection = 0; // 0 = stop, 1 = forward, 2 = backward
 int currentTurn = 0;      // 0 = straight, 1 = left, 2 = right
 
+bool turnBool = 1; // for autonomous turning
+
 #define DEBUGGING true
 
 void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
@@ -120,8 +122,14 @@ int get_distance() {
     return -1;
   }
   if (d<200){
-    drive(0, 0);
-    delay(100);
+    turnBool = !turnBool;
+    drive(2, 0);
+    delay(1000);
+    if(turnBool){
+      drive(1, 1);
+    }else{
+      drive(1, 2);
+    }
     Serial.print("Please turn!");
   }
   return d;
