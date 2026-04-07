@@ -25,6 +25,9 @@ const int SCL_white = D5;// SCL
 int currentDirection = 0; // 0 = stop, 1 = forward, 2 = backward
 int currentTurn = 0;      // 0 = straight, 1 = left, 2 = right
 
+
+// autonomous mode state
+bool currentMode = 0; // 0 = manual, 1 = autonomous
 bool turnBool = 1; // for autonomous turning
 
 #define DEBUGGING true
@@ -39,6 +42,8 @@ void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
     if(msg.indexOf("left")>=0) currentTurn=1;
     if(msg.indexOf("right")>=0) currentTurn=2;
     if(msg.indexOf("stop")>=0){ currentDirection=0; currentTurn=0;}
+    if(msg.indexOf("auto")>=0) currentMode=1;
+    if(msg.indexOf("autoStop")>=0) currentMode=0;
     ws.sendTXT(num, "ACK");           // optional ack
   }
 }
@@ -163,16 +168,17 @@ void setup() {
 void loop() {
   ws.loop();
   drive(currentDirection,currentTurn);
-  delay(100);
+  delay(50);
 
-  int dist = get_distance();
-  if (sensor.timeoutOccurred() || dist >= 8190) {
-    // ungültige Messung
-    Serial.println("no Echo");
-  } else {
-    Serial.print(dist);
-    Serial.println(" mm");
+  if (currentMode){
+    int dist = get_distance();
+    if (sensor.timeoutOccurred() || dist >= 8190) {
+      // ungültige Messung
+      Serial.println("no Echo");
+    } else {
+      Serial.print(dist);
+      Serial.println(" mm");
+    }
+    yield();
   }
-  yield();
-
 }
