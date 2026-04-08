@@ -171,6 +171,8 @@ void loop() {
   delay(50);
 
   if (currentMode){
+    currentDirection = 1;
+    currentTurn = 0;
     int dist = get_distance();
     if (sensor.timeoutOccurred() || dist >= 8190) {
       // ungültige Messung
