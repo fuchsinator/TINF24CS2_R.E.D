@@ -56,7 +56,7 @@ void handleKey(RawKeyEvent event) {
     case 'Arrow Right':
       isDown ? activeCommands.add('right') : activeCommands.remove('right');
       break;
-    case ' ':
+    case 'Space':
       if (isDown) activeCommands.clear();
       break;
     default:
@@ -70,7 +70,8 @@ void handleKey(RawKeyEvent event) {
 
 class ConnectionManager {
   ConnectionManager._internal() {
-    _start();
+    // Don't auto-connect on startup - wait for user action
+    // _start();
   }
 
   static final ConnectionManager instance = ConnectionManager._internal();
@@ -82,6 +83,7 @@ class ConnectionManager {
   int _reconnectSeconds = 1;
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
+  bool _isConnecting = false;
 
   void _start() {
     _connect();
@@ -92,6 +94,9 @@ class ConnectionManager {
   }
 
   Future<void> _connect() async {
+    if (_isConnecting) return;
+    _isConnecting = true;
+
     try {
       _channel?.sink.close(ws_status.goingAway);
     } catch (_) {}
@@ -99,40 +104,66 @@ class ConnectionManager {
     try {
       // try main WS URL first
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+
+      // Wait a bit to see if connection succeeds
+      await Future.delayed(const Duration(milliseconds: 100));
+
       connected.value = true;
       _reconnectSeconds = 1;
+      _isConnecting = false;
 
-      _channel!.stream.listen((message) {
-        // handle incoming messages if needed
-        // ignore: avoid_print
-        print('WS recv: $message');
-      }, onDone: () {
-        connected.value = false;
-        _scheduleReconnect();
-      }, onError: (e) {
-        connected.value = false;
-        _scheduleReconnect();
-      });
+      _channel!.stream.listen(
+        (message) {
+          // handle incoming messages if needed
+          // ignore: avoid_print
+          print('WS recv: $message');
+        },
+        onDone: () {
+          connected.value = false;
+          _isConnecting = false;
+          _scheduleReconnect();
+        },
+        onError: (e) {
+          connected.value = false;
+          _isConnecting = false;
+          _scheduleReconnect();
+        },
+        cancelOnError: false,
+      );
       return;
     } catch (e) {
       // try fallback (local proxy) for testing
       try {
         _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
+
+        // Wait a bit to see if connection succeeds
+        await Future.delayed(const Duration(milliseconds: 100));
+
         connected.value = true;
         _reconnectSeconds = 1;
+        _isConnecting = false;
 
-        _channel!.stream.listen((message) {
-          print('WS recv: $message');
-        }, onDone: () {
-          connected.value = false;
-          _scheduleReconnect();
-        }, onError: (e) {
-          connected.value = false;
-          _scheduleReconnect();
-        });
+        _channel!.stream.listen(
+          (message) {
+            print('WS recv: $message');
+          },
+          onDone: () {
+            connected.value = false;
+            _isConnecting = false;
+            _scheduleReconnect();
+          },
+          onError: (e) {
+            connected.value = false;
+            _isConnecting = false;
+            _scheduleReconnect();
+          },
+          cancelOnError: false,
+        );
         return;
       } catch (e2) {
+        // Both connections failed - this is OK, just schedule reconnect
         connected.value = false;
+        _isConnecting = false;
         _scheduleReconnect();
       }
     }
@@ -154,6 +185,11 @@ class ConnectionManager {
   }
 
   void send(String cmd) {
+    // Start connection if not already connected
+    if (_channel == null && !_isConnecting) {
+      _start();
+    }
+
     try {
       if (_channel != null) {
         _channel!.sink.add(cmd);
@@ -162,13 +198,16 @@ class ConnectionManager {
       } else {
         // fallback to HTTP
         final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
-        http.get(url).then((r) {
-          // ignore: avoid_print
-          print('HTTP fallback sent: $cmd | ${r.statusCode}');
-        }).catchError((e) {
-          // ignore: avoid_print
-          print('Fallback error: $e');
-        });
+        http
+            .get(url)
+            .then((r) {
+              // ignore: avoid_print
+              print('HTTP fallback sent: $cmd | ${r.statusCode}');
+            })
+            .catchError((e) {
+              // ignore: avoid_print
+              print('Fallback error: $e');
+            });
       }
     } catch (e) {
       // ignore: avoid_print
@@ -219,8 +258,8 @@ class MyApp extends StatelessWidget {
         '/': (ctx) => const WelcomePage(),
         '/modes': (ctx) => const ModeSelectionPage(),
         '/drive': (ctx) => const DrivingPage(),
-        '/scan': (ctx) => const TrackingRoomPage(),
         '/draw': (ctx) => const DrawingPage(),
+        '/autonomous': (ctx) => const AutonomousDrivingPage(),
       },
     );
   }
@@ -498,19 +537,17 @@ class ModeSelectionPage extends StatelessWidget {
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.videogame_asset),
-            title: const Text('Tracking room'),
-            subtitle: const Text(
-              'Track the room to drive inside without crashing',
-            ),
-            onTap: () => Navigator.pushNamed(context, '/scan'),
-          ),
-          const Divider(),
-          ListTile(
             leading: const Icon(Icons.brush),
             title: const Text('Drawing the route'),
             subtitle: const Text('Draw the route the car should follow'),
             onTap: () => Navigator.pushNamed(context, '/draw'),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.smart_toy),
+            title: const Text('Autonomous Driving'),
+            subtitle: const Text('Let the car drive autonomously with sensors'),
+            onTap: () => Navigator.pushNamed(context, '/autonomous'),
           ),
         ],
       ),
@@ -527,7 +564,7 @@ class ModePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title', textAlign: TextAlign.center)),
+      body: Center(child: Text(title, textAlign: TextAlign.center)),
     );
   }
 }
@@ -1055,114 +1092,6 @@ class _DrivingPageState extends State<DrivingPage> {
   }
 }
 
-/* ---------------- TrackingRoomPage (Scan) ---------------- */
-class TrackingRoomPage extends StatefulWidget {
-  const TrackingRoomPage({super.key});
-
-  @override
-  State<TrackingRoomPage> createState() => _TrackingRoomPageState();
-}
-
-class _TrackingRoomPageState extends State<TrackingRoomPage> {
-  bool tracking = false;
-  double obstacleX = 0.0; // Beispiel: zufälliges Hindernis
-  @override
-  void initState() {
-    super.initState();
-    obstacleX = 0.2;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tracking Room'),
-        actions: const [ConnectionStatus()],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.red.shade700, Colors.grey.shade900],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              SwitchListTile(
-                title: const Text('Enable Tracking'),
-                value: tracking,
-                onChanged: (v) => setState(() => tracking = v),
-              ),
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: Container(
-                      margin: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: Stack(
-                        children: [
-                          // fake "camera" background -> correct asset path
-                          Positioned.fill(
-                            child: Image.asset(
-                              'assets/images/Checkerflag.png',
-                              fit: BoxFit.cover,
-                              color: Colors.white24,
-                              colorBlendMode: BlendMode.modulate,
-                            ),
-                          ),
-                          // Beispiel-Hindernis
-                          Positioned(
-                            left:
-                                (MediaQuery.of(context).size.width - 24) *
-                                obstacleX,
-                            top: 60,
-                            child: Icon(
-                              Icons.warning_amber_rounded,
-                              color: tracking
-                                  ? Colors.orangeAccent
-                                  : Colors.white24,
-                              size: 48,
-                            ),
-                          ),
-                          if (!tracking)
-                            const Center(
-                              child: Text(
-                                'Tracking disabled',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            ),
-                          if (tracking)
-                            Positioned(
-                              bottom: 12,
-                              left: 12,
-                              child: ElevatedButton(
-                                onPressed: () => setState(
-                                  () => obstacleX = (obstacleX + 0.15) % 0.8,
-                                ),
-                                child: const Text('Simulate Obstacle Move'),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /* ---------------- DrawingPage (Draw) ---------------- */
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
@@ -1315,4 +1244,284 @@ class _RoutePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _RoutePainter oldDelegate) => true;
+}
+
+/* ---------------- AutonomousDrivingPage ---------------- */
+class AutonomousDrivingPage extends StatefulWidget {
+  const AutonomousDrivingPage({super.key});
+
+  @override
+  State<AutonomousDrivingPage> createState() => _AutonomousDrivingPageState();
+}
+
+class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
+  bool isRunning = false;
+  double maxSpeed = 15.0; // km/h
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    if (isRunning) {
+      _stopAutonomous();
+    }
+    super.dispose();
+  }
+
+  void _startAutonomous() {
+    setState(() => isRunning = true);
+    // Send command to ESP32
+    ConnectionManager.instance.send('auto');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode started'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _stopAutonomous() {
+    setState(() => isRunning = false);
+    // Send stop command
+    ConnectionManager.instance.send('autoStop');
+    sendCommand('stop');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode stopped'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _emergencyStop() {
+    setState(() => isRunning = false);
+    // Send emergency stop
+    ConnectionManager.instance.send('emergency_stop');
+    sendCommand('stop');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('EMERGENCY STOP ACTIVATED!'),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Color _getDistanceColor(double distance) {
+    if (distance < 20) return Colors.red;
+    if (distance < 40) return Colors.orange;
+    return Colors.green;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Autonomous Driving'),
+        centerTitle: true,
+        actions: const [ConnectionStatus()],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.red.shade700, Colors.grey.shade900],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+
+                  // Sensor Visualization
+                  Card(
+                    color: Colors.black26,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          const Text(
+                            'Sensor Readings',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Sensor visualization layout
+                          SizedBox(
+                            height: 250,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Car icon in center
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white12,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isRunning
+                                          ? Colors.greenAccent
+                                          : Colors.white24,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.directions_car,
+                                    size: 50,
+                                    color: isRunning
+                                        ? Colors.greenAccent
+                                        : Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Control Buttons
+                  if (!isRunning)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _startAutonomous,
+                        icon: const Icon(Icons.play_arrow, size: 32),
+                        label: const Text(
+                          'START AUTONOMOUS MODE',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _stopAutonomous,
+                        icon: const Icon(Icons.stop, size: 32),
+                        label: const Text(
+                          'STOP AUTONOMOUS MODE',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color.fromARGB(
+                            255,
+                            255,
+                            79,
+                            21,
+                          ),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Emergency Stop Button (always visible)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 60,
+                    child: ElevatedButton.icon(
+                      onPressed: _emergencyStop,
+                      icon: const Icon(Icons.warning, size: 32),
+                      label: const Text(
+                        'EMERGENCY STOP',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Helper widget for sensor display
+class _SensorDisplay extends StatelessWidget {
+  final double distance;
+  final String label;
+  final Color color;
+
+  const _SensorDisplay({
+    required this.distance,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "20 cm",
+            style: TextStyle(
+              color: color,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
