@@ -80,6 +80,10 @@ class ConnectionManager {
 
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
+  Timer? _sendThrottleTimer;
+  String? _pendingCommand;
+  String? _lastSentCommand;
+  final Duration _minSendInterval = const Duration(milliseconds: 200);
   int _reconnectSeconds = 1;
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
@@ -181,14 +185,16 @@ class ConnectionManager {
       _channel?.sink.close(ws_status.normalClosure);
     } catch (_) {}
     _reconnectTimer?.cancel();
+    _sendThrottleTimer?.cancel();
     connected.dispose();
   }
 
-  void send(String cmd) {
-    // Start connection if not already connected
-    if (_channel == null && !_isConnecting) {
-      _start();
-    }
+  void _flushPendingCommand() {
+    if (_pendingCommand == null) return;
+    if (_pendingCommand == _lastSentCommand) return;
+
+    final cmd = _pendingCommand!;
+    _lastSentCommand = cmd;
 
     try {
       if (_channel != null) {
@@ -212,6 +218,25 @@ class ConnectionManager {
     } catch (e) {
       // ignore: avoid_print
       print('Send error: $e');
+    }
+  }
+
+  void send(String cmd) {
+    _pendingCommand = cmd;
+
+    // Start connection if not already connected
+    if (_channel == null && !_isConnecting) {
+      _start();
+    }
+
+    if (_sendThrottleTimer == null) {
+      _flushPendingCommand();
+      _sendThrottleTimer = Timer(_minSendInterval, () {
+        _sendThrottleTimer = null;
+        if (_pendingCommand != _lastSentCommand) {
+          _flushPendingCommand();
+        }
+      });
     }
   }
 }
