@@ -56,7 +56,7 @@ void handleKey(RawKeyEvent event) {
     case 'Arrow Right':
       isDown ? activeCommands.add('right') : activeCommands.remove('right');
       break;
-    case 'Space':
+    case ' ':
       if (isDown) activeCommands.clear();
       break;
     default:
@@ -70,8 +70,7 @@ void handleKey(RawKeyEvent event) {
 
 class ConnectionManager {
   ConnectionManager._internal() {
-    // Don't auto-connect on startup - wait for user action
-    // _start();
+    _start();
   }
 
   static final ConnectionManager instance = ConnectionManager._internal();
@@ -83,10 +82,9 @@ class ConnectionManager {
   int _reconnectSeconds = 1;
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
-  bool _isConnecting = false;
 
   void _start() {
-      _connect();
+    _connect();
   }
 
   Future<void> connectNow() async {
@@ -94,9 +92,6 @@ class ConnectionManager {
   }
 
   Future<void> _connect() async {
-    if (_isConnecting) return;
-    _isConnecting = true;
-    
     try {
       _channel?.sink.close(ws_status.goingAway);
     } catch (_) {}
@@ -104,56 +99,48 @@ class ConnectionManager {
     try {
       // try main WS URL first
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      
-      // Wait a bit to see if connection succeeds
-      await Future.delayed(const Duration(milliseconds: 100));
-      
       connected.value = true;
       _reconnectSeconds = 1;
-      _isConnecting = false;
 
-      _channel!.stream.listen((message) {
-        // handle incoming messages if needed
-        // ignore: avoid_print
-        print('WS recv: $message');
-      }, onDone: () {
-        connected.value = false;
-        _isConnecting = false;
-        _scheduleReconnect();
-      }, onError: (e) {
-        connected.value = false;
-        _isConnecting = false;
-        _scheduleReconnect();
-      }, cancelOnError: false);
+      _channel!.stream.listen(
+        (message) {
+          // handle incoming messages if needed
+          // ignore: avoid_print
+          print('WS recv: $message');
+        },
+        onDone: () {
+          connected.value = false;
+          _scheduleReconnect();
+        },
+        onError: (e) {
+          connected.value = false;
+          _scheduleReconnect();
+        },
+      );
       return;
     } catch (e) {
       // try fallback (local proxy) for testing
       try {
         _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
-        
-        // Wait a bit to see if connection succeeds
-        await Future.delayed(const Duration(milliseconds: 100));
-        
         connected.value = true;
         _reconnectSeconds = 1;
-        _isConnecting = false;
 
-        _channel!.stream.listen((message) {
-          print('WS recv: $message');
-        }, onDone: () {
-          connected.value = false;
-          _isConnecting = false;
-          _scheduleReconnect();
-        }, onError: (e) {
-          connected.value = false;
-          _isConnecting = false;
-          _scheduleReconnect();
-        }, cancelOnError: false);
+        _channel!.stream.listen(
+          (message) {
+            print('WS recv: $message');
+          },
+          onDone: () {
+            connected.value = false;
+            _scheduleReconnect();
+          },
+          onError: (e) {
+            connected.value = false;
+            _scheduleReconnect();
+          },
+        );
         return;
       } catch (e2) {
-        // Both connections failed - this is OK, just schedule reconnect
         connected.value = false;
-        _isConnecting = false;
         _scheduleReconnect();
       }
     }
@@ -175,11 +162,6 @@ class ConnectionManager {
   }
 
   void send(String cmd) {
-    // Start connection if not already connected
-    if (_channel == null && !_isConnecting) {
-      _start();
-    }
-    
     try {
       if (_channel != null) {
         _channel!.sink.add(cmd);
@@ -188,13 +170,16 @@ class ConnectionManager {
       } else {
         // fallback to HTTP
         final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
-        http.get(url).then((r) {
-          // ignore: avoid_print
-          print('HTTP fallback sent: $cmd | ${r.statusCode}');
-        }).catchError((e) {
-          // ignore: avoid_print
-          print('Fallback error: $e');
-        });
+        http
+            .get(url)
+            .then((r) {
+              // ignore: avoid_print
+              print('HTTP fallback sent: $cmd | ${r.statusCode}');
+            })
+            .catchError((e) {
+              // ignore: avoid_print
+              print('Fallback error: $e');
+            });
       }
     } catch (e) {
       // ignore: avoid_print
@@ -245,8 +230,8 @@ class MyApp extends StatelessWidget {
         '/': (ctx) => const WelcomePage(),
         '/modes': (ctx) => const ModeSelectionPage(),
         '/drive': (ctx) => const DrivingPage(),
+        '/scan': (ctx) => const AutonomousDrivingPage(),
         '/draw': (ctx) => const DrawingPage(),
-        '/autonomous': (ctx) => const AutonomousDrivingPage(),
       },
     );
   }
@@ -524,17 +509,17 @@ class ModeSelectionPage extends StatelessWidget {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.videogame_asset),
+            title: const Text('Autonomic driving'),
+            subtitle: const Text('Drive without crashung in the room'),
+            onTap: () => Navigator.pushNamed(context, '/scan'),
+          ),
+          const Divider(),
+          ListTile(
             leading: const Icon(Icons.brush),
             title: const Text('Drawing the route'),
             subtitle: const Text('Draw the route the car should follow'),
             onTap: () => Navigator.pushNamed(context, '/draw'),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.smart_toy),
-            title: const Text('Autonomous Driving'),
-            subtitle: const Text('Let the car drive autonomously with sensors'),
-            onTap: () => Navigator.pushNamed(context, '/autonomous'),
           ),
         ],
       ),
@@ -551,7 +536,7 @@ class ModePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: Center(child: Text(title, textAlign: TextAlign.center)),
+      body: Center(child: Text('$title', textAlign: TextAlign.center)),
     );
   }
 }
@@ -585,6 +570,53 @@ class _DrivingPageState extends State<DrivingPage> {
 
   // New: invert controls toggle
   bool controlsInverted = false;
+
+  // verhindert mehrfaches feuern bei gehaltenen Tasten
+  final Map<LogicalKeyboardKey, bool> _keyPressed = {};
+
+  // Keyboard handler für Pfeiltasten und WASD
+  void _handleKey(RawKeyEvent event) {
+    final key = event.logicalKey;
+    final isDown = event is RawKeyDownEvent;
+
+    if (_keyPressed[key] == isDown) return;
+    _keyPressed[key] = isDown;
+
+    switch (key.keyLabel) {
+      // Pfeiltasten
+      case 'Arrow Up':
+      case 'W':
+      case 'w':
+        _inputAccelerate(isDown);
+        break;
+      case 'Arrow Down':
+      case 'S':
+      case 's':
+        _inputBrake(isDown);
+        break;
+      case 'Arrow Left':
+      case 'A':
+      case 'a':
+        _inputSteerLeft(isDown);
+        break;
+      case 'Arrow Right':
+      case 'D':
+      case 'd':
+        _inputSteerRight(isDown);
+        break;
+      case ' ':
+        if (isDown) {
+          // Space = Emergency Stop
+          _inputAccelerate(false);
+          _inputBrake(false);
+          _inputSteerLeft(false);
+          _inputSteerRight(false);
+        }
+        break;
+      default:
+        break;
+    }
+  }
 
   // --- Input wrappers that respect the inverted flag ---
   void _inputAccelerate(bool down) {
@@ -785,7 +817,7 @@ class _DrivingPageState extends State<DrivingPage> {
     final theme = Theme.of(context);
     return RawKeyboardListener(
       focusNode: _focusNode,
-      onKey: handleKey,
+      onKey: _handleKey,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Driving'),
@@ -1079,6 +1111,223 @@ class _DrivingPageState extends State<DrivingPage> {
   }
 }
 
+/* ---------------- AutonomousDrivingPage ---------------- */
+class AutonomousDrivingPage extends StatefulWidget {
+  const AutonomousDrivingPage({super.key});
+
+  @override
+  State<AutonomousDrivingPage> createState() => _AutonomousDrivingPageState();
+}
+
+class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
+  bool isRunning = false;
+  double maxSpeed = 15.0; // km/h
+
+  @override
+  void dispose() {
+    if (isRunning) {
+      _stopAutonomous();
+    }
+    super.dispose();
+  }
+
+  void _startAutonomous() {
+    setState(() => isRunning = true);
+    // Send command to ESP32
+    isRunning ? activeCommands.add("auto") : activeCommands.remove("auto");
+
+    updateCommand();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode started'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _stopAutonomous() {
+    setState(() => isRunning = false);
+    // Send stop command
+    isRunning
+        ? activeCommands.add("autoStop")
+        : activeCommands.remove("autoStop");
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode stopped'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _emergencyStop() {
+    setState(() => isRunning = false);
+    // Send emergency stop
+    ConnectionManager.instance.send('emergency_stop');
+    sendCommand('stop');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('EMERGENCY STOP ACTIVATED!'),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Autonomous Driving'),
+        centerTitle: true,
+        actions: const [ConnectionStatus()],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.red.shade700, Colors.grey.shade900],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+
+                  // Sensor Visualization
+                  Card(
+                    color: Colors.black26,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 20),
+
+                          // Sensor visualization layout
+                          SizedBox(
+                            height: 250,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Car icon in center
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white12,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isRunning
+                                          ? Colors.greenAccent
+                                          : Colors.white24,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.directions_car,
+                                    size: 50,
+                                    color: isRunning
+                                        ? Colors.greenAccent
+                                        : Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Control Buttons
+                  if (!isRunning)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _startAutonomous,
+                        icon: const Icon(Icons.play_arrow, size: 32),
+                        label: const Text(
+                          'START AUTONOMOUS MODE',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _stopAutonomous,
+                        icon: const Icon(Icons.stop, size: 32),
+                        label: const Text(
+                          'STOP AUTONOMOUS MODE',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color.fromARGB(
+                            255,
+                            255,
+                            79,
+                            21,
+                          ),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Emergency Stop Button (always visible)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 60,
+                    child: ElevatedButton.icon(
+                      onPressed: _emergencyStop,
+                      icon: const Icon(Icons.warning, size: 32),
+                      label: const Text(
+                        'EMERGENCY STOP',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /* ---------------- DrawingPage (Draw) ---------------- */
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
@@ -1232,302 +1481,3 @@ class _RoutePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RoutePainter oldDelegate) => true;
 }
-
-/* ---------------- AutonomousDrivingPage ---------------- */
-class AutonomousDrivingPage extends StatefulWidget {
-  const AutonomousDrivingPage({super.key});
-
-  @override
-  State<AutonomousDrivingPage> createState() => _AutonomousDrivingPageState();
-}
-
-class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
-  bool isRunning = false;
-  double maxSpeed = 15.0; // km/h
-  
-  // Simulated sensor distances (in cm)
-  double frontDistance = 100.0;
-  double backDistance = 80.0;
-  double leftDistance = 60.0;
-  double rightDistance = 70.0;
-  
-  Timer? _sensorTimer;
-  
-  @override
-  void initState() {
-    super.initState();
-    // Simulate sensor updates every 200ms
-    _sensorTimer = Timer.periodic(
-      const Duration(milliseconds: 200),
-      (_) => _updateSensors(),
-    );
-  }
-  
-  @override
-  void dispose() {
-    _sensorTimer?.cancel();
-    if (isRunning) {
-      _stopAutonomous();
-    }
-    super.dispose();
-  }
-  
-  void _updateSensors() {
-    if (!isRunning) return;
-    
-    setState(() {
-      // Simulate sensor readings (in real app, receive from WebSocket)
-      frontDistance = 50 + (DateTime.now().millisecondsSinceEpoch % 100) * 0.5;
-      backDistance = 40 + (DateTime.now().millisecondsSinceEpoch % 80) * 0.5;
-      leftDistance = 30 + (DateTime.now().millisecondsSinceEpoch % 60) * 0.5;
-      rightDistance = 35 + (DateTime.now().millisecondsSinceEpoch % 70) * 0.5;
-    });
-  }
-  
-  void _startAutonomous() {
-    setState(() => isRunning = true);
-    // Send command to ESP32
-    ConnectionManager.instance.send('autonomous_start:${maxSpeed.toInt()}');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Autonomous mode started'),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-  
-  void _stopAutonomous() {
-    setState(() => isRunning = false);
-    // Send stop command
-    ConnectionManager.instance.send('autonomous_stop');
-    sendCommand('stop');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Autonomous mode stopped'),
-        backgroundColor: Colors.orange,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-  
-  void _emergencyStop() {
-    setState(() => isRunning = false);
-    // Send emergency stop
-    ConnectionManager.instance.send('emergency_stop');
-    sendCommand('stop');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('EMERGENCY STOP ACTIVATED!'),
-        backgroundColor: Colors.red,
-        duration: Duration(seconds: 3),
-      ),
-    );
-  }
-  
-  Color _getDistanceColor(double distance) {
-    if (distance < 20) return Colors.red;
-    if (distance < 40) return Colors.orange;
-    return Colors.green;
-  }
-  
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Autonomous Driving'),
-        centerTitle: true,
-        actions: const [ConnectionStatus()],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.red.shade700, Colors.grey.shade900],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  
-                  // Sensor Visualization
-                  Card(
-                    color: Colors.black26,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          const Text(
-                            'Sensor Readings',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          
-                          // Sensor visualization layout
-                          SizedBox(
-                            height: 250,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                // Front sensor
-                                Positioned(
-                                  top: 10,
-                                  child: _SensorDisplay(
-                                    distance: frontDistance,
-                                    label: 'Front',
-                                    color: _getDistanceColor(frontDistance),
-                                  ),
-                                ),
-
-                                // Car icon in center
-                                Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white12,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: isRunning ? Colors.greenAccent : Colors.white24,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.directions_car,
-                                    size: 50,
-                                    color: isRunning ? Colors.greenAccent : Colors.white70,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  // Control Buttons
-                  if (!isRunning)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 60,
-                      child: ElevatedButton.icon(
-                        onPressed: _startAutonomous,
-                        icon: const Icon(Icons.play_arrow, size: 32),
-                        label: const Text(
-                          'START AUTONOMOUS MODE',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    )
-                  else
-                    SizedBox(
-                      width: double.infinity,
-                      height: 60,
-                      child: ElevatedButton.icon(
-                        onPressed: _stopAutonomous,
-                        icon: const Icon(Icons.stop, size: 32),
-                        label: const Text(
-                          'STOP AUTONOMOUS MODE',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color.fromARGB(255, 255, 79, 21),
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
-                  
-                  const SizedBox(height: 12),
-                  
-                  // Emergency Stop Button (always visible)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 60,
-                    child: ElevatedButton.icon(
-                      onPressed: _emergencyStop,
-                      icon: const Icon(Icons.warning, size: 32),
-                      label: const Text(
-                        'EMERGENCY STOP',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade700,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// Helper widget for sensor display
-class _SensorDisplay extends StatelessWidget {
-  final double distance;
-  final String label;
-  final Color color;
-  
-  const _SensorDisplay({
-    required this.distance,
-    required this.label,
-    required this.color,
-  });
-  
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color, width: 2),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${distance.toInt()} cm',
-            style: TextStyle(
-              color: color,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
