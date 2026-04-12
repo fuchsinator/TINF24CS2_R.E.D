@@ -25,10 +25,12 @@ const int SCL_white = D5;// SCL
 int currentDirection = 0; // 0 = stop, 1 = forward, 2 = backward
 int currentTurn = 0;      // 0 = straight, 1 = left, 2 = right
 
-
 // autonomous mode state
 bool currentMode = 0; // 0 = manual, 1 = autonomous
 bool turnBool = 1; // for autonomous turning
+
+//time the motors will drive in ms per command (default 10)
+int driveTime = 10;
 
 #define DEBUGGING true
 
@@ -48,7 +50,6 @@ void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
   }
 }
 
-// Minimal drive function
 /*Drive function:#
   direction: no move = 0; forwards = 1; backwards = 2
   turn: no turn = 0; left = 1; right = 2
@@ -90,8 +91,7 @@ void drive(int direction, int turn){
       Serial.print("no direction option set");
     }
   }
-  //digitalWrite(Motor_B_green, LOW);
-  //digitalWrite(Motor_A_white, LOW);
+  delay(driveTime);
 }
 
 void sensor_init(bool long_range, bool high_speed) {
@@ -121,23 +121,26 @@ void sensor_init(bool long_range, bool high_speed) {
 }
 
 int get_distance() {
-  int d = sensor.readRangeSingleMillimeters();
+  int dist = sensor.readRangeSingleMillimeters();
   if (sensor.timeoutOccurred()) {
     Serial.println("Sensor timeout");
     return -1;
   }
-  if (d<200){
+  return dist;
+}
+
+int set_autoDrive(int dist) {
+  //When car 20cm away from obsticle cars drives backwards and turns 
+  if (dist < 250 && dist > 50){
+    Serial.println("Backwards");
     turnBool = !turnBool;
     drive(2, 0);
-    delay(1000);
-    if(turnBool){
-      drive(1, 1);
-    }else{
-      drive(1, 2);
-    }
-    Serial.print("Please turn!");
+    delay(100);
+  }else{
+    Serial.println("Forwards");
+    drive(1,0);
   }
-  return d;
+  return 0;
 }
 
 void setup() {
@@ -167,18 +170,12 @@ void setup() {
 
 void loop() {
   ws.loop();
-  drive(currentDirection,currentTurn);
-  delay(50);
-
   if (currentMode){
     int dist = get_distance();
-    if (sensor.timeoutOccurred() || dist >= 8190) {
-      // ungültige Messung
-      Serial.println("no Echo");
-    } else {
-      Serial.print(dist);
-      Serial.println(" mm");
-    }
+    set_autoDrive(dist);
+    Serial.println(dist);
     yield();
+  }else{
+    drive(currentDirection,currentTurn);
   }
 }
