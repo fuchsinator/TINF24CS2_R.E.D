@@ -1258,49 +1258,23 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   bool isRunning = false;
   double maxSpeed = 15.0; // km/h
 
-  // Simulated sensor distances (in cm)
-  double frontDistance = 100.0;
-  double backDistance = 80.0;
-  double leftDistance = 60.0;
-  double rightDistance = 70.0;
-
-  Timer? _sensorTimer;
-
   @override
   void initState() {
     super.initState();
-    // Simulate sensor updates every 200ms
-    _sensorTimer = Timer.periodic(
-      const Duration(milliseconds: 200),
-      (_) => _updateSensors(),
-    );
   }
 
   @override
   void dispose() {
-    _sensorTimer?.cancel();
     if (isRunning) {
       _stopAutonomous();
     }
     super.dispose();
   }
 
-  void _updateSensors() {
-    if (!isRunning) return;
-
-    setState(() {
-      // Simulate sensor readings (in real app, receive from WebSocket)
-      frontDistance = 50 + (DateTime.now().millisecondsSinceEpoch % 100) * 0.5;
-      backDistance = 40 + (DateTime.now().millisecondsSinceEpoch % 80) * 0.5;
-      leftDistance = 30 + (DateTime.now().millisecondsSinceEpoch % 60) * 0.5;
-      rightDistance = 35 + (DateTime.now().millisecondsSinceEpoch % 70) * 0.5;
-    });
-  }
-
   void _startAutonomous() {
     setState(() => isRunning = true);
     // Send command to ESP32
-    ConnectionManager.instance.send('autonomous_start:${maxSpeed.toInt()}');
+    ConnectionManager.instance.send('auto');
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -1314,7 +1288,7 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   void _stopAutonomous() {
     setState(() => isRunning = false);
     // Send stop command
-    ConnectionManager.instance.send('autonomous_stop');
+    ConnectionManager.instance.send('autoStop');
     sendCommand('stop');
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1394,16 +1368,6 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
-                                // Front sensor
-                                Positioned(
-                                  top: 10,
-                                  child: _SensorDisplay(
-                                    distance: frontDistance,
-                                    label: 'Front',
-                                    color: _getDistanceColor(frontDistance),
-                                  ),
-                                ),
-
                                 // Car icon in center
                                 Container(
                                   width: 80,
@@ -1549,7 +1513,7 @@ class _SensorDisplay extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${distance.toInt()} cm',
+            "20 cm",
             style: TextStyle(
               color: color,
               fontSize: 16,
