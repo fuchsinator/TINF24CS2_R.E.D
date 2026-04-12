@@ -25,12 +25,23 @@ final Set<String> activeCommands = {};
 /// verhindert mehrfaches feuern bei gehaltenen Tasten
 final Map<LogicalKeyboardKey, bool> keyPressed = {};
 
+/// Timer für Command-Timeout
+Timer? _globalCommandTimer;
+
 void updateCommand() {
   if (activeCommands.isEmpty) {
     sendCommand("stop");
   } else {
     sendCommand(activeCommands.join(","));
   }
+}
+
+void _startGlobalCommandTimer() {
+  _globalCommandTimer?.cancel();
+  _globalCommandTimer = Timer(const Duration(milliseconds: 10), () {
+    activeCommands.clear();
+    updateCommand();
+  });
 }
 
 /// Keyboard Support (F12 Browser!!)
@@ -63,7 +74,12 @@ void handleKey(RawKeyEvent event) {
       break;
   }
 
-  updateCommand();
+  if (isDown && activeCommands.isNotEmpty) {
+    updateCommand();
+    _startGlobalCommandTimer();
+  } else {
+    updateCommand();
+  }
 }
 
 // ---------------- Connection Manager & UI ----------------
@@ -649,6 +665,7 @@ class DrivingPage extends StatefulWidget {
 class _DrivingPageState extends State<DrivingPage> {
   Timer? _timer;
   Timer? _reverseTimer;
+  Timer? _commandTimer;
   double speed = 0.0; // positive = forward, negative = reverse (km/h)
   double throttle = 0.0; // -1..1 (driven by button / reverse)
   double brake = 0.0; // 0..1
@@ -767,7 +784,16 @@ class _DrivingPageState extends State<DrivingPage> {
   void dispose() {
     _timer?.cancel();
     _reverseTimer?.cancel();
+    _commandTimer?.cancel();
     super.dispose();
+  }
+
+  void _startCommandTimer() {
+    _commandTimer?.cancel();
+    _commandTimer = Timer(const Duration(milliseconds: 10), () {
+      activeCommands.clear();
+      updateCommand();
+    });
   }
 
   String _speedText() => '${speed.abs().toInt()} km/h';
@@ -775,18 +801,20 @@ class _DrivingPageState extends State<DrivingPage> {
 
   // Helfer für gedrückt/losgelassen Verhalten
   void _pressAccelerate(bool down, {bool fromVirtual = false}) {
-    setState(() {
-      accelerating = down;
-
-      if (down) {
+    if (down) {
+      setState(() {
+        accelerating = true;
         reversing = false;
         activeCommands.add("forward");
-      } else {
+        updateCommand();
+        _startCommandTimer();
+      });
+    } else {
+      setState(() {
+        accelerating = false;
         activeCommands.remove("forward");
-      }
-
-      updateCommand();
-    });
+      });
+    }
   }
 
   void _pressBrake(bool down, {bool fromVirtual = false}) {
@@ -795,6 +823,7 @@ class _DrivingPageState extends State<DrivingPage> {
 
       activeCommands.add("backward");
       updateCommand();
+      _startCommandTimer();
 
       _reverseTimer?.cancel();
       _reverseTimer = Timer(const Duration(milliseconds: 700), () {
@@ -811,24 +840,31 @@ class _DrivingPageState extends State<DrivingPage> {
       });
 
       activeCommands.remove("backward");
-      updateCommand();
     }
   }
 
   void _pressSteerLeft(bool down) {
-    setState(() => steerLeft = down);
-
-    down ? activeCommands.add("left") : activeCommands.remove("left");
-
-    updateCommand();
+    if (down) {
+      setState(() => steerLeft = true);
+      activeCommands.add("left");
+      updateCommand();
+      _startCommandTimer();
+    } else {
+      setState(() => steerLeft = false);
+      activeCommands.remove("left");
+    }
   }
 
   void _pressSteerRight(bool down) {
-    setState(() => steerRight = down);
-
-    down ? activeCommands.add("right") : activeCommands.remove("right");
-
-    updateCommand();
+    if (down) {
+      setState(() => steerRight = true);
+      activeCommands.add("right");
+      updateCommand();
+      _startCommandTimer();
+    } else {
+      setState(() => steerRight = false);
+      activeCommands.remove("right");
+    }
   }
 
   Widget _controlButton({
