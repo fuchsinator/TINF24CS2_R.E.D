@@ -83,7 +83,10 @@ class ConnectionManager {
   Timer? _sendThrottleTimer;
   String? _pendingCommand;
   String? _lastSentCommand;
-  final Duration _minSendInterval = const Duration(milliseconds: 200);
+  int _tokens = 2;
+  final int _maxTokens = 2;
+  final Duration _tokenRefillInterval = const Duration(milliseconds: 200);
+  DateTime _lastTokenRefill = DateTime.now();
   int _reconnectSeconds = 1;
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
@@ -189,6 +192,44 @@ class ConnectionManager {
     connected.dispose();
   }
 
+  void _refillTokens() {
+    final now = DateTime.now();
+    final elapsed = now.difference(_lastTokenRefill);
+    final int cycles =
+        elapsed.inMilliseconds ~/ _tokenRefillInterval.inMilliseconds;
+    if (cycles <= 0) return;
+
+    _tokens = (_tokens + cycles).clamp(0, _maxTokens);
+    _lastTokenRefill = _lastTokenRefill.add(
+      Duration(milliseconds: _tokenRefillInterval.inMilliseconds * cycles),
+    );
+  }
+
+  Duration _timeUntilNextToken() {
+    final elapsed = DateTime.now().difference(_lastTokenRefill).inMilliseconds;
+    final int remaining = _tokenRefillInterval.inMilliseconds - elapsed;
+    return Duration(
+      milliseconds: remaining.clamp(0, _tokenRefillInterval.inMilliseconds),
+    );
+  }
+
+  void _scheduleTokenTimer() {
+    _sendThrottleTimer?.cancel();
+    _sendThrottleTimer = Timer(_timeUntilNextToken(), () {
+      _sendThrottleTimer = null;
+      _refillTokens();
+      if (_pendingCommand != null &&
+          _pendingCommand != _lastSentCommand &&
+          _tokens > 0) {
+        _flushPendingCommand();
+        _tokens--;
+      }
+      if (_tokens == 0 && _pendingCommand != _lastSentCommand) {
+        _scheduleTokenTimer();
+      }
+    });
+  }
+
   void _flushPendingCommand() {
     if (_pendingCommand == null) return;
     if (_pendingCommand == _lastSentCommand) return;
@@ -229,14 +270,16 @@ class ConnectionManager {
       _start();
     }
 
-    if (_sendThrottleTimer == null) {
+    _refillTokens();
+    if (_pendingCommand != _lastSentCommand && _tokens > 0) {
       _flushPendingCommand();
-      _sendThrottleTimer = Timer(_minSendInterval, () {
-        _sendThrottleTimer = null;
-        if (_pendingCommand != _lastSentCommand) {
-          _flushPendingCommand();
-        }
-      });
+      _tokens--;
+    }
+
+    if (_tokens == 0 &&
+        _pendingCommand != _lastSentCommand &&
+        _sendThrottleTimer == null) {
+      _scheduleTokenTimer();
     }
   }
 }
