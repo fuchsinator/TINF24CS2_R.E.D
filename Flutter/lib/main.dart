@@ -48,10 +48,14 @@ class ConnectionManager {
 
   WebSocketChannel? _channel;
   Timer? _checkTimer;
+  Timer? _sendThrottleTimer;
+  String? _pendingCommand;
+  String? _lastSentCommand;
   bool _connecting = false;
   String? currentUrl; // which endpoint we're talking to
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
+  final Duration _minSendInterval = const Duration(milliseconds: 200);
 
   void _start() {
     // start periodic watcher: every 10 s try to connect if we're offline
@@ -160,7 +164,13 @@ class ConnectionManager {
     connected.dispose();
   }
 
-  void send(String cmd) {
+  void _flushPendingCommand() {
+    if (_pendingCommand == null) return;
+    if (_pendingCommand == _lastSentCommand) return;
+
+    final cmd = _pendingCommand!;
+    _lastSentCommand = cmd;
+
     try {
       if (_channel != null) {
         _channel!.sink.add(cmd);
@@ -184,6 +194,24 @@ class ConnectionManager {
       // ignore: avoid_print
       print('Send error: $e');
     }
+  }
+
+  void send(String cmd) {
+    _pendingCommand = cmd;
+
+    // Send immediately for the first command, then throttle later updates.
+    if (_sendThrottleTimer == null) {
+      _flushPendingCommand();
+      _sendThrottleTimer = Timer(_minSendInterval, () {
+        _sendThrottleTimer = null;
+        if (_pendingCommand != _lastSentCommand) {
+          _flushPendingCommand();
+        }
+      });
+      return;
+    }
+
+    // If timer is active, just store the latest command and let the timer flush it.
   }
 }
 
