@@ -171,6 +171,8 @@ void setup() {
 void loop() {
   ws.loop();
   if (currentMode){
+    currentDirection = 1;
+    currentTurn = 0;
     int dist = get_distance();
     set_autoDrive(dist);
     Serial.println(dist);
