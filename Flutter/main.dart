@@ -38,9 +38,15 @@ void updateCommand() {
 
 void _startGlobalCommandTimer() {
   _globalCommandTimer?.cancel();
-  _globalCommandTimer = Timer(const Duration(milliseconds: 10), () {
-    activeCommands.clear();
-    updateCommand();
+  _globalCommandTimer = Timer(const Duration(milliseconds: 250), () {
+    if (keyPressed.values.any((pressed) => pressed)) {
+      _startGlobalCommandTimer();
+      return;
+    }
+    if (activeCommands.isNotEmpty) {
+      activeCommands.clear();
+      updateCommand();
+    }
   });
 }
 
@@ -52,33 +58,58 @@ void handleKey(RawKeyEvent event) {
   if (keyPressed[key] == isDown) return;
   keyPressed[key] = isDown;
 
-  switch (key.keyLabel) {
-    case 'Arrow Up':
-      isDown ? activeCommands.add('forward') : activeCommands.remove('forward');
-      break;
-    case 'Arrow Down':
-      isDown
-          ? activeCommands.add('backward')
-          : activeCommands.remove('backward');
-      break;
-    case 'Arrow Left':
-      isDown ? activeCommands.add('left') : activeCommands.remove('left');
-      break;
-    case 'Arrow Right':
-      isDown ? activeCommands.add('right') : activeCommands.remove('right');
-      break;
-    case 'Space':
-      if (isDown) activeCommands.clear();
-      break;
-    default:
-      break;
+  if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.keyW) {
+    isDown ? activeCommands.add('forward') : activeCommands.remove('forward');
+  } else if (key == LogicalKeyboardKey.arrowDown ||
+      key == LogicalKeyboardKey.keyS) {
+    isDown ? activeCommands.add('backward') : activeCommands.remove('backward');
+  } else if (key == LogicalKeyboardKey.arrowLeft ||
+      key == LogicalKeyboardKey.keyA) {
+    isDown ? activeCommands.add('left') : activeCommands.remove('left');
+  } else if (key == LogicalKeyboardKey.arrowRight ||
+      key == LogicalKeyboardKey.keyD) {
+    isDown ? activeCommands.add('right') : activeCommands.remove('right');
+  } else if (key == LogicalKeyboardKey.space) {
+    if (isDown) {
+      activeCommands.clear();
+    }
+  } else {
+    final keyLabel = key.keyLabel.toUpperCase();
+    switch (keyLabel) {
+      case 'ARROW UP':
+      case 'W':
+        isDown
+            ? activeCommands.add('forward')
+            : activeCommands.remove('forward');
+        break;
+      case 'ARROW DOWN':
+      case 'S':
+        isDown
+            ? activeCommands.add('backward')
+            : activeCommands.remove('backward');
+        break;
+      case 'ARROW LEFT':
+      case 'A':
+        isDown ? activeCommands.add('left') : activeCommands.remove('left');
+        break;
+      case 'ARROW RIGHT':
+      case 'D':
+        isDown ? activeCommands.add('right') : activeCommands.remove('right');
+        break;
+      case 'SPACE':
+        if (isDown) {
+          activeCommands.clear();
+        }
+        break;
+      default:
+        break;
+    }
   }
 
-  if (isDown && activeCommands.isNotEmpty) {
-    updateCommand();
+  updateCommand();
+
+  if (isDown) {
     _startGlobalCommandTimer();
-  } else {
-    updateCommand();
   }
 }
 
@@ -902,6 +933,7 @@ class _DrivingPageState extends State<DrivingPage> {
     final theme = Theme.of(context);
     return RawKeyboardListener(
       focusNode: _focusNode,
+      autofocus: true,
       onKey: handleKey,
       child: Scaffold(
         appBar: AppBar(
