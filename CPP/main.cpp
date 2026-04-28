@@ -32,6 +32,9 @@ bool turnBool = 1; // for autonomous turning
 //time the motors will drive in ms per command (default 10)
 int driveTime = 10;
 
+//Check if Sensor is on, has to be clicked in Flutter with Popup
+bool sensorMode = 0;
+
 #define DEBUGGING true
 
 void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
@@ -46,6 +49,7 @@ void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
     if(msg.indexOf("stop")>=0){ currentDirection=0; currentTurn=0;}
     if(msg.indexOf("auto")>=0) currentMode=1;
     if(msg.indexOf("autoStop")>=0) currentMode=0;
+    if(msg.indexOf("sensorOn")>=0) sensorMode=1;
     ws.sendTXT(num, "ACK");           // optional ack
   }
 }
@@ -95,29 +99,31 @@ void drive(int direction, int turn){
 }
 
 void sensor_init(bool long_range, bool high_speed) {
-  Wire.begin(SDA_green, SCL_white);   // SDA, SCL
-  delay(1000);           // let sensor boot
+  if(sensorMode){
+    Wire.begin(SDA_green, SCL_white);   // SDA, SCL
+    delay(1000);           // let sensor boot
 
-  sensor.setTimeout(500);
+    sensor.setTimeout(500);
 
-  if (!sensor.init()) {
-    Serial.println("VL53L0X init FAILED");
-    while (1) {
-      delay(10);
-      yield();          // keep WDT happy
+    if (!sensor.init()) {
+      Serial.println("VL53L0X init FAILED");
+      while (1) {
+        delay(10);
+        yield();          // keep WDT happy
+      }
     }
-  }
 
-  if (long_range) {
-    sensor.setSignalRateLimit(0.1);
-    sensor.setVcselPulsePeriod(
-      VL53L0X::VcselPeriodPreRange, 18);
-    sensor.setVcselPulsePeriod(
-      VL53L0X::VcselPeriodFinalRange, 14);
-  }
+    if (long_range) {
+      sensor.setSignalRateLimit(0.1);
+      sensor.setVcselPulsePeriod(
+        VL53L0X::VcselPeriodPreRange, 18);
+      sensor.setVcselPulsePeriod(
+        VL53L0X::VcselPeriodFinalRange, 14);
+    }
 
-  uint32_t budget = high_speed ? 20000 : 200000;
-  sensor.setMeasurementTimingBudget(budget);
+    uint32_t budget = high_speed ? 20000 : 200000;
+    sensor.setMeasurementTimingBudget(budget);
+  }
 }
 
 int get_distance() {
@@ -170,7 +176,7 @@ void setup() {
 
 void loop() {
   ws.loop();
-  if (currentMode){
+  if (currentMode && sensorMode){
     currentDirection = 1;
     currentTurn = 0;
     int dist = get_distance();
