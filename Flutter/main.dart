@@ -128,6 +128,7 @@ class ConnectionManager {
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
   Timer? _sendThrottleTimer;
+  Timer? _keepAliveTimer;
   String? _pendingCommand;
   String? _lastSentCommand;
   int _tokens = 2;
@@ -155,71 +156,71 @@ class ConnectionManager {
       _channel?.sink.close(ws_status.goingAway);
     } catch (_) {}
 
+    // Try main URL
     try {
-      // try main WS URL first
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-
-      // Wait a bit to see if connection succeeds
-      await Future.delayed(const Duration(milliseconds: 100));
+      await _channel!.ready;
 
       connected.value = true;
       _reconnectSeconds = 1;
       _isConnecting = false;
+      _startKeepAlive();
 
       _channel!.stream.listen(
         (message) {
-          // handle incoming messages if needed
           // ignore: avoid_print
           print('WS recv: $message');
         },
         onDone: () {
           connected.value = false;
           _isConnecting = false;
+          _stopKeepAlive();
           _scheduleReconnect();
         },
         onError: (e) {
           connected.value = false;
           _isConnecting = false;
+          _stopKeepAlive();
           _scheduleReconnect();
         },
         cancelOnError: false,
       );
       return;
-    } catch (e) {
-      // try fallback (local proxy) for testing
-      try {
-        _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
+    } catch (_) {}
 
-        // Wait a bit to see if connection succeeds
-        await Future.delayed(const Duration(milliseconds: 100));
+    // Try fallback (local proxy) for testing
+    try {
+      _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
+      await _channel!.ready;
 
-        connected.value = true;
-        _reconnectSeconds = 1;
-        _isConnecting = false;
+      connected.value = true;
+      _reconnectSeconds = 1;
+      _isConnecting = false;
+      _startKeepAlive();
 
-        _channel!.stream.listen(
-          (message) {
-            print('WS recv: $message');
-          },
-          onDone: () {
-            connected.value = false;
-            _isConnecting = false;
-            _scheduleReconnect();
-          },
-          onError: (e) {
-            connected.value = false;
-            _isConnecting = false;
-            _scheduleReconnect();
-          },
-          cancelOnError: false,
-        );
-        return;
-      } catch (e2) {
-        // Both connections failed - this is OK, just schedule reconnect
-        connected.value = false;
-        _isConnecting = false;
-        _scheduleReconnect();
-      }
+      _channel!.stream.listen(
+        (message) {
+          // ignore: avoid_print
+          print('WS recv: $message');
+        },
+        onDone: () {
+          connected.value = false;
+          _isConnecting = false;
+          _stopKeepAlive();
+          _scheduleReconnect();
+        },
+        onError: (e) {
+          connected.value = false;
+          _isConnecting = false;
+          _stopKeepAlive();
+          _scheduleReconnect();
+        },
+        cancelOnError: false,
+      );
+    } catch (_) {
+      connected.value = false;
+      _isConnecting = false;
+      _scheduleReconnect();
     }
   }
 
@@ -230,12 +231,29 @@ class ConnectionManager {
     _reconnectSeconds = (_reconnectSeconds * 2).clamp(1, 30);
   }
 
+  void _startKeepAlive() {
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_channel != null && connected.value) {
+        try {
+          _channel!.sink.add('ping');
+        } catch (_) {}
+      }
+    });
+  }
+
+  void _stopKeepAlive() {
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = null;
+  }
+
   void dispose() {
     try {
       _channel?.sink.close(ws_status.normalClosure);
     } catch (_) {}
     _reconnectTimer?.cancel();
     _sendThrottleTimer?.cancel();
+    _keepAliveTimer?.cancel();
     connected.dispose();
   }
 
@@ -751,6 +769,37 @@ class _DrivingPageState extends State<DrivingPage> {
     }
   }
 
+  void _handleDrivingKey(RawKeyEvent event) {
+    final key = event.logicalKey;
+    final isDown = event is RawKeyDownEvent;
+
+    if (keyPressed[key] == isDown) return;
+    keyPressed[key] = isDown;
+
+    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.keyW) {
+      controlsInverted ? _inputBrake(isDown) : _inputAccelerate(isDown);
+    } else if (key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.keyS) {
+      controlsInverted ? _inputAccelerate(isDown) : _inputBrake(isDown);
+    } else if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.keyA) {
+      _inputSteerLeft(isDown);
+    } else if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.keyD) {
+      _inputSteerRight(isDown);
+    } else if (key == LogicalKeyboardKey.space && isDown) {
+      setState(() {
+        accelerating = false;
+        braking = false;
+        steerLeft = false;
+        steerRight = false;
+        reversing = false;
+      });
+      activeCommands.clear();
+      updateCommand();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -934,7 +983,7 @@ class _DrivingPageState extends State<DrivingPage> {
     return RawKeyboardListener(
       focusNode: _focusNode,
       autofocus: true,
-      onKey: handleKey,
+      onKey: _handleDrivingKey,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Driving'),
@@ -1392,24 +1441,72 @@ class AutonomousDrivingPage extends StatefulWidget {
 
 class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   bool isRunning = false;
-  double maxSpeed = 15.0; // km/h
+  double maxSpeed = 15.0;
+  bool _sensorCheckDone = false;
 
   @override
   void initState() {
     super.initState();
+    ConnectionManager.instance.connected.addListener(_onConnectionChanged);
+    if (ConnectionManager.instance.connected.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showSensorPopup();
+      });
+    }
   }
 
   @override
   void dispose() {
-    if (isRunning) {
-      _stopAutonomous();
-    }
+    ConnectionManager.instance.connected.removeListener(_onConnectionChanged);
+    if (isRunning) _stopAutonomous();
     super.dispose();
   }
 
+  void _onConnectionChanged() {
+    if (!mounted) return;
+    if (ConnectionManager.instance.connected.value) {
+      if (!_sensorCheckDone) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showSensorPopup();
+        });
+      }
+    } else {
+      setState(() {
+        _sensorCheckDone = false;
+        isRunning = false;
+      });
+    }
+  }
+
+  Future<void> _showSensorPopup() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sensor-Prüfung'),
+        content: const Text('Ist ein Sensor im Auto verbaut?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Nein'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Ja'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _sensorCheckDone = true);
+    if (result == true) {
+      ConnectionManager.instance.send('sensorOn');
+    }
+  }
+
   void _startAutonomous() {
+    if (!_sensorCheckDone) return;
     setState(() => isRunning = true);
-    // Send command to ESP32
     ConnectionManager.instance.send('auto');
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1537,12 +1634,21 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
                   const SizedBox(height: 20),
 
                   // Control Buttons
+                  if (!_sensorCheckDone)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8.0),
+                      child: Text(
+                        'Bitte verbinde dich mit dem Auto für die Sensor-Prüfung.',
+                        style: TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                   if (!isRunning)
                     SizedBox(
                       width: double.infinity,
                       height: 60,
                       child: ElevatedButton.icon(
-                        onPressed: _startAutonomous,
+                        onPressed: _sensorCheckDone ? _startAutonomous : null,
                         icon: const Icon(Icons.play_arrow, size: 32),
                         label: const Text(
                           'START AUTONOMOUS MODE',
