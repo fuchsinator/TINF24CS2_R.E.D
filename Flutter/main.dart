@@ -127,14 +127,7 @@ class ConnectionManager {
 
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
-  Timer? _sendThrottleTimer;
   Timer? _keepAliveTimer;
-  String? _pendingCommand;
-  String? _lastSentCommand;
-  int _tokens = 2;
-  final int _maxTokens = 2;
-  final Duration _tokenRefillInterval = const Duration(milliseconds: 200);
-  DateTime _lastTokenRefill = DateTime.now();
   int _reconnectSeconds = 1;
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
@@ -252,99 +245,35 @@ class ConnectionManager {
       _channel?.sink.close(ws_status.normalClosure);
     } catch (_) {}
     _reconnectTimer?.cancel();
-    _sendThrottleTimer?.cancel();
     _keepAliveTimer?.cancel();
     connected.dispose();
   }
 
-  void _refillTokens() {
-    final now = DateTime.now();
-    final elapsed = now.difference(_lastTokenRefill);
-    final int cycles =
-        elapsed.inMilliseconds ~/ _tokenRefillInterval.inMilliseconds;
-    if (cycles <= 0) return;
-
-    _tokens = (_tokens + cycles).clamp(0, _maxTokens);
-    _lastTokenRefill = _lastTokenRefill.add(
-      Duration(milliseconds: _tokenRefillInterval.inMilliseconds * cycles),
-    );
-  }
-
-  Duration _timeUntilNextToken() {
-    final elapsed = DateTime.now().difference(_lastTokenRefill).inMilliseconds;
-    final int remaining = _tokenRefillInterval.inMilliseconds - elapsed;
-    return Duration(
-      milliseconds: remaining.clamp(0, _tokenRefillInterval.inMilliseconds),
-    );
-  }
-
-  void _scheduleTokenTimer() {
-    _sendThrottleTimer?.cancel();
-    _sendThrottleTimer = Timer(_timeUntilNextToken(), () {
-      _sendThrottleTimer = null;
-      _refillTokens();
-      if (_pendingCommand != null &&
-          _pendingCommand != _lastSentCommand &&
-          _tokens > 0) {
-        _flushPendingCommand();
-        _tokens--;
-      }
-      if (_tokens == 0 && _pendingCommand != _lastSentCommand) {
-        _scheduleTokenTimer();
-      }
-    });
-  }
-
-  void _flushPendingCommand() {
-    if (_pendingCommand == null) return;
-    if (_pendingCommand == _lastSentCommand) return;
-
-    final cmd = _pendingCommand!;
-    _lastSentCommand = cmd;
-
+  void send(String cmd) {
+    if (_channel == null && !_isConnecting) {
+      _start();
+    }
     try {
       if (_channel != null) {
         _channel!.sink.add(cmd);
         // ignore: avoid_print
         print('WS sent: $cmd');
       } else {
-        // fallback to HTTP
         final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
         http
             .get(url)
             .then((r) {
               // ignore: avoid_print
-              print('HTTP fallback sent: $cmd | ${r.statusCode}');
+              print('HTTP sent: $cmd | ${r.statusCode}');
             })
             .catchError((e) {
               // ignore: avoid_print
-              print('Fallback error: $e');
+              print('HTTP error: $e');
             });
       }
     } catch (e) {
       // ignore: avoid_print
       print('Send error: $e');
-    }
-  }
-
-  void send(String cmd) {
-    _pendingCommand = cmd;
-
-    // Start connection if not already connected
-    if (_channel == null && !_isConnecting) {
-      _start();
-    }
-
-    _refillTokens();
-    if (_pendingCommand != _lastSentCommand && _tokens > 0) {
-      _flushPendingCommand();
-      _tokens--;
-    }
-
-    if (_tokens == 0 &&
-        _pendingCommand != _lastSentCommand &&
-        _sendThrottleTimer == null) {
-      _scheduleTokenTimer();
     }
   }
 }
@@ -714,7 +643,6 @@ class DrivingPage extends StatefulWidget {
 class _DrivingPageState extends State<DrivingPage> {
   Timer? _timer;
   Timer? _reverseTimer;
-  Timer? _commandTimer;
   double speed = 0.0; // positive = forward, negative = reverse (km/h)
   double throttle = 0.0; // -1..1 (driven by button / reverse)
   double brake = 0.0; // 0..1
@@ -864,47 +792,30 @@ class _DrivingPageState extends State<DrivingPage> {
   void dispose() {
     _timer?.cancel();
     _reverseTimer?.cancel();
-    _commandTimer?.cancel();
     super.dispose();
-  }
-
-  void _startCommandTimer() {
-    _commandTimer?.cancel();
-    _commandTimer = Timer(const Duration(milliseconds: 10), () {
-      activeCommands.clear();
-      updateCommand();
-    });
   }
 
   String _speedText() => '${speed.abs().toInt()} km/h';
   String _rpmText() => '${(speed.abs() * 30).toInt()} rpm';
 
-  // Helfer für gedrückt/losgelassen Verhalten
   void _pressAccelerate(bool down, {bool fromVirtual = false}) {
-    if (down) {
-      setState(() {
-        accelerating = true;
+    setState(() {
+      accelerating = down;
+      if (down) {
         reversing = false;
         activeCommands.add("forward");
-        updateCommand();
-        _startCommandTimer();
-      });
-    } else {
-      setState(() {
-        accelerating = false;
+      } else {
         activeCommands.remove("forward");
-      });
-    }
+      }
+      updateCommand();
+    });
   }
 
   void _pressBrake(bool down, {bool fromVirtual = false}) {
     if (down) {
       setState(() => braking = true);
-
       activeCommands.add("backward");
       updateCommand();
-      _startCommandTimer();
-
       _reverseTimer?.cancel();
       _reverseTimer = Timer(const Duration(milliseconds: 700), () {
         if (braking && speed.abs() < 1.0) {
@@ -913,38 +824,25 @@ class _DrivingPageState extends State<DrivingPage> {
       });
     } else {
       _reverseTimer?.cancel();
-
       setState(() {
         braking = false;
         reversing = false;
       });
-
       activeCommands.remove("backward");
+      updateCommand();
     }
   }
 
   void _pressSteerLeft(bool down) {
-    if (down) {
-      setState(() => steerLeft = true);
-      activeCommands.add("left");
-      updateCommand();
-      _startCommandTimer();
-    } else {
-      setState(() => steerLeft = false);
-      activeCommands.remove("left");
-    }
+    setState(() => steerLeft = down);
+    down ? activeCommands.add("left") : activeCommands.remove("left");
+    updateCommand();
   }
 
   void _pressSteerRight(bool down) {
-    if (down) {
-      setState(() => steerRight = true);
-      activeCommands.add("right");
-      updateCommand();
-      _startCommandTimer();
-    } else {
-      setState(() => steerRight = false);
-      activeCommands.remove("right");
-    }
+    setState(() => steerRight = down);
+    down ? activeCommands.add("right") : activeCommands.remove("right");
+    updateCommand();
   }
 
   Widget _controlButton({
