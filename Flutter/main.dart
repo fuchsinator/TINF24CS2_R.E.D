@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
+import 'dart:math';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,12 +26,29 @@ final Set<String> activeCommands = {};
 /// verhindert mehrfaches feuern bei gehaltenen Tasten
 final Map<LogicalKeyboardKey, bool> keyPressed = {};
 
+/// Timer für Command-Timeout
+Timer? _globalCommandTimer;
+
 void updateCommand() {
   if (activeCommands.isEmpty) {
     sendCommand("stop");
   } else {
     sendCommand(activeCommands.join(","));
   }
+}
+
+void _startGlobalCommandTimer() {
+  _globalCommandTimer?.cancel();
+  _globalCommandTimer = Timer(const Duration(milliseconds: 250), () {
+    if (keyPressed.values.any((pressed) => pressed)) {
+      _startGlobalCommandTimer();
+      return;
+    }
+    if (activeCommands.isNotEmpty) {
+      activeCommands.clear();
+      updateCommand();
+    }
+  });
 }
 
 /// Keyboard Support (F12 Browser!!)
@@ -41,36 +59,302 @@ void handleKey(RawKeyEvent event) {
   if (keyPressed[key] == isDown) return;
   keyPressed[key] = isDown;
 
-  switch (key.keyLabel) {
-    case 'Arrow Up':
-      isDown ? activeCommands.add('forward') : activeCommands.remove('forward');
-      break;
-    case 'Arrow Down':
-      isDown
-          ? activeCommands.add('backward')
-          : activeCommands.remove('backward');
-      break;
-    case 'Arrow Left':
-      isDown ? activeCommands.add('left') : activeCommands.remove('left');
-      break;
-    case 'Arrow Right':
-      isDown ? activeCommands.add('right') : activeCommands.remove('right');
-      break;
-    case ' ':
-      if (isDown) activeCommands.clear();
-      break;
-    default:
-      break;
+  if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.keyW) {
+    isDown ? activeCommands.add('forward') : activeCommands.remove('forward');
+  } else if (key == LogicalKeyboardKey.arrowDown ||
+      key == LogicalKeyboardKey.keyS) {
+    isDown ? activeCommands.add('backward') : activeCommands.remove('backward');
+  } else if (key == LogicalKeyboardKey.arrowLeft ||
+      key == LogicalKeyboardKey.keyA) {
+    isDown ? activeCommands.add('left') : activeCommands.remove('left');
+  } else if (key == LogicalKeyboardKey.arrowRight ||
+      key == LogicalKeyboardKey.keyD) {
+    isDown ? activeCommands.add('right') : activeCommands.remove('right');
+  } else if (key == LogicalKeyboardKey.space) {
+    if (isDown) {
+      activeCommands.clear();
+    }
+  } else {
+    final keyLabel = key.keyLabel.toUpperCase();
+    switch (keyLabel) {
+      case 'ARROW UP':
+      case 'W':
+        isDown
+            ? activeCommands.add('forward')
+            : activeCommands.remove('forward');
+        break;
+      case 'ARROW DOWN':
+      case 'S':
+        isDown
+            ? activeCommands.add('backward')
+            : activeCommands.remove('backward');
+        break;
+      case 'ARROW LEFT':
+      case 'A':
+        isDown ? activeCommands.add('left') : activeCommands.remove('left');
+        break;
+      case 'ARROW RIGHT':
+      case 'D':
+        isDown ? activeCommands.add('right') : activeCommands.remove('right');
+        break;
+      case 'SPACE':
+        if (isDown) {
+          activeCommands.clear();
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   updateCommand();
+
+  if (isDown) {
+    _startGlobalCommandTimer();
+  }
+}
+// ============ Route Playback ============
+
+enum SegmentType {
+  straight, //Straight line
+  leftCurve, //Curve to the left
+  rightCurve, //Curve to the right
+  sharpLeft, // sharp Curve to the left (first steering)
+  sharpRight, // sharp Curve to the right (first steering)
+}
+
+class RouteSegment {
+  final Offset start;       //starting point
+  final Offset end;         //ending point
+  final double distance;    //length of segment
+  final double angle;       //angle 
+  final double curvature;   //curvature of segment
+  final SegmentType type;   // which segment type   
+  
+  RouteSegment({
+    required this.start,
+    required this.end,
+    required this.distance,
+    required this.angle,
+    required this.curvature,
+    required this.type,
+  });
+  
+  double angleDifference(RouteSegment next) {
+    // calculate the difference between the current and next segment's angles
+    double diff = next.angle - this.angle;
+    while (diff > 180) diff -= 360;
+    while (diff < -180) diff += 360;
+    return diff;
+  }
+}
+
+enum PlaybackState {
+  //Which status in the UI
+  idle,
+  playing,
+  paused,
+  completed,
+  error,
+}
+
+class RouteCommand {
+  // Command 
+  final String command;
+  final int duration;
+  final int segmentIndex;
+  
+  RouteCommand({
+    required this.command,
+    required this.duration,
+    required this.segmentIndex,
+  });
+}
+
+// ============ Route Processing ============
+
+class RouteProcessor {
+  static List<RouteSegment> processRoute(List<Offset> points) {
+    List<Offset> cleanPoints = _cleanPoints(points);
+    List<Offset> smoothPoints = _smoothPoints(cleanPoints);
+    List<RouteSegment> segments = _createSegments(smoothPoints);
+    _analyzeVectors(segments);
+    _classifySegments(segments);
+    return segments;
+  }
+  
+  static List<Offset> _cleanPoints(List<Offset> points) {
+    List<Offset> cleaned = [];
+    const double minDistance = 5.0;
+    
+    for (var point in points) {
+      if (point == Offset.zero) continue;
+      
+      if (cleaned.isEmpty) {
+        cleaned.add(point);
+        continue;
+      }
+      
+      double dist = (point - cleaned.last).distance;
+      if (dist >= minDistance) {
+        cleaned.add(point);
+      }
+    }
+    
+    return cleaned;
+  }
+  
+  static List<Offset> _smoothPoints(List<Offset> points) {
+    if (points.length < 3) return points;
+    
+    List<Offset> smoothed = [points.first];
+    
+    for (int i = 1; i < points.length - 1; i++) {
+      double avgX = (points[i-1].dx + points[i].dx + points[i+1].dx) / 3;
+      double avgY = (points[i-1].dy + points[i].dy + points[i+1].dy) / 3;
+      smoothed.add(Offset(avgX, avgY));
+    }
+    
+    smoothed.add(points.last);
+    return smoothed;
+  }
+  
+  static List<RouteSegment> _createSegments(List<Offset> points) {
+    List<RouteSegment> segments = [];
+    
+    for (int i = 0; i < points.length - 1; i++) {
+      Offset start = points[i];
+      Offset end = points[i + 1];
+      double distance = (end - start).distance;
+      
+      segments.add(RouteSegment(
+        start: start,
+        end: end,
+        distance: distance,
+        angle: 0.0,
+        curvature: 0.0,
+        type: SegmentType.straight,
+      ));
+    }
+    
+    return segments;
+  }
+  
+  static void _analyzeVectors(List<RouteSegment> segments) {
+    for (int i = 0; i < segments.length; i++) {
+      var seg = segments[i];
+      
+      double dx = seg.end.dx - seg.start.dx;
+      double dy = seg.end.dy - seg.start.dy;
+      double angle = atan2(dy, dx) * 180 / pi;
+      if (angle < 0) angle += 360;
+      
+      double curvature = 0.0;
+      if (i > 0 && i < segments.length - 1) {
+        double prevAngle = segments[i-1].angle;
+        double nextAngle = segments[i+1].angle;
+        double angleDiff = _normalizeAngle(nextAngle - prevAngle);
+        curvature = angleDiff / 180.0;
+      }
+      
+      segments[i] = RouteSegment(
+        start: seg.start,
+        end: seg.end,
+        distance: seg.distance,
+        angle: angle,
+        curvature: curvature,
+        type: seg.type,
+      );
+    }
+  }
+  
+  static void _classifySegments(List<RouteSegment> segments) {
+    for (int i = 0; i < segments.length - 1; i++) {
+      var seg = segments[i];
+      var next = segments[i + 1];
+      
+      double angleDiff = seg.angleDifference(next);
+      
+      SegmentType type;
+      if (angleDiff.abs() < 15) {
+        type = SegmentType.straight;
+      } else if (angleDiff < -45) {
+        type = SegmentType.sharpRight;
+      } else if (angleDiff < 0) {
+        type = SegmentType.rightCurve;
+      } else if (angleDiff > 45) {
+        type = SegmentType.sharpLeft;
+      } else {
+        type = SegmentType.leftCurve;
+      }
+      
+      segments[i] = RouteSegment(
+        start: seg.start,
+        end: seg.end,
+        distance: seg.distance,
+        angle: seg.angle,
+        curvature: seg.curvature,
+        type: type,
+      );
+    }
+  }
+  
+  static double _normalizeAngle(double angle) {
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
+    return angle;
+  }
+}
+
+// ============ Command Generation ============
+
+class CommandGenerator {
+  static List<RouteCommand> generateCommands(
+    List<RouteSegment> segments,
+    double speedMultiplier,
+  ) {
+    List<RouteCommand> commands = [];
+    
+    for (int i = 0; i < segments.length; i++) {
+      var seg = segments[i];
+      
+      int baseDuration = (seg.distance * 10).round();
+      int duration = (baseDuration / speedMultiplier).round();
+      
+      String command = _generateCommandForSegment(seg);
+      
+      commands.add(RouteCommand(
+        command: command,
+        duration: duration,
+        segmentIndex: i,
+      ));
+    }
+    
+    return commands;
+  }
+  
+  static String _generateCommandForSegment(RouteSegment seg) {
+    switch (seg.type) {
+      case SegmentType.straight:
+        return "forward";
+      case SegmentType.leftCurve:
+        return "forward,left";
+      case SegmentType.rightCurve:
+        return "forward,right";
+      case SegmentType.sharpLeft:
+        return "left";
+      case SegmentType.sharpRight:
+        return "right";
+    }
+  }
 }
 
 // ---------------- Connection Manager & UI ----------------
 
 class ConnectionManager {
   ConnectionManager._internal() {
-    _start();
+    // Don't auto-connect on startup - wait for user action
+    // _start();
   }
 
   static final ConnectionManager instance = ConnectionManager._internal();
@@ -79,9 +363,18 @@ class ConnectionManager {
 
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
+  Timer? _sendThrottleTimer;
+  Timer? _keepAliveTimer;
+  String? _pendingCommand;
+  String? _lastSentCommand;
+  int _tokens = 2;
+  final int _maxTokens = 2;
+  final Duration _tokenRefillInterval = const Duration(milliseconds: 200);
+  DateTime _lastTokenRefill = DateTime.now();
   int _reconnectSeconds = 1;
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
+  bool _isConnecting = false;
 
   void _start() {
     _connect();
@@ -92,49 +385,78 @@ class ConnectionManager {
   }
 
   Future<void> _connect() async {
+    if (_isConnecting) return;
+    _isConnecting = true;
+
     try {
       _channel?.sink.close(ws_status.goingAway);
     } catch (_) {}
 
+    // Try main URL
     try {
-      // try main WS URL first
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      await _channel!.ready;
+
       connected.value = true;
       _reconnectSeconds = 1;
+      _isConnecting = false;
+      _startKeepAlive();
 
-      _channel!.stream.listen((message) {
-        // handle incoming messages if needed
-        // ignore: avoid_print
-        print('WS recv: $message');
-      }, onDone: () {
-        connected.value = false;
-        _scheduleReconnect();
-      }, onError: (e) {
-        connected.value = false;
-        _scheduleReconnect();
-      });
-      return;
-    } catch (e) {
-      // try fallback (local proxy) for testing
-      try {
-        _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
-        connected.value = true;
-        _reconnectSeconds = 1;
-
-        _channel!.stream.listen((message) {
+      _channel!.stream.listen(
+        (message) {
+          // ignore: avoid_print
           print('WS recv: $message');
-        }, onDone: () {
+        },
+        onDone: () {
           connected.value = false;
+          _isConnecting = false;
+          _stopKeepAlive();
           _scheduleReconnect();
-        }, onError: (e) {
+        },
+        onError: (e) {
           connected.value = false;
+          _isConnecting = false;
+          _stopKeepAlive();
           _scheduleReconnect();
-        });
-        return;
-      } catch (e2) {
-        connected.value = false;
-        _scheduleReconnect();
-      }
+        },
+        cancelOnError: false,
+      );
+      return;
+    } catch (_) {}
+
+    // Try fallback (local proxy) for testing
+    try {
+      _channel = WebSocketChannel.connect(Uri.parse(wsFallback));
+      await _channel!.ready;
+
+      connected.value = true;
+      _reconnectSeconds = 1;
+      _isConnecting = false;
+      _startKeepAlive();
+
+      _channel!.stream.listen(
+        (message) {
+          // ignore: avoid_print
+          print('WS recv: $message');
+        },
+        onDone: () {
+          connected.value = false;
+          _isConnecting = false;
+          _stopKeepAlive();
+          _scheduleReconnect();
+        },
+        onError: (e) {
+          connected.value = false;
+          _isConnecting = false;
+          _stopKeepAlive();
+          _scheduleReconnect();
+        },
+        cancelOnError: false,
+      );
+    } catch (_) {
+      connected.value = false;
+      _isConnecting = false;
+      _scheduleReconnect();
     }
   }
 
@@ -145,15 +467,77 @@ class ConnectionManager {
     _reconnectSeconds = (_reconnectSeconds * 2).clamp(1, 30);
   }
 
+  void _startKeepAlive() {
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_channel != null && connected.value) {
+        try {
+          _channel!.sink.add('ping');
+        } catch (_) {}
+      }
+    });
+  }
+
+  void _stopKeepAlive() {
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = null;
+  }
+
   void dispose() {
     try {
       _channel?.sink.close(ws_status.normalClosure);
     } catch (_) {}
     _reconnectTimer?.cancel();
+    _sendThrottleTimer?.cancel();
+    _keepAliveTimer?.cancel();
     connected.dispose();
   }
 
-  void send(String cmd) {
+  void _refillTokens() {
+    final now = DateTime.now();
+    final elapsed = now.difference(_lastTokenRefill);
+    final int cycles =
+        elapsed.inMilliseconds ~/ _tokenRefillInterval.inMilliseconds;
+    if (cycles <= 0) return;
+
+    _tokens = (_tokens + cycles).clamp(0, _maxTokens);
+    _lastTokenRefill = _lastTokenRefill.add(
+      Duration(milliseconds: _tokenRefillInterval.inMilliseconds * cycles),
+    );
+  }
+
+  Duration _timeUntilNextToken() {
+    final elapsed = DateTime.now().difference(_lastTokenRefill).inMilliseconds;
+    final int remaining = _tokenRefillInterval.inMilliseconds - elapsed;
+    return Duration(
+      milliseconds: remaining.clamp(0, _tokenRefillInterval.inMilliseconds),
+    );
+  }
+
+  void _scheduleTokenTimer() {
+    _sendThrottleTimer?.cancel();
+    _sendThrottleTimer = Timer(_timeUntilNextToken(), () {
+      _sendThrottleTimer = null;
+      _refillTokens();
+      if (_pendingCommand != null &&
+          _pendingCommand != _lastSentCommand &&
+          _tokens > 0) {
+        _flushPendingCommand();
+        _tokens--;
+      }
+      if (_tokens == 0 && _pendingCommand != _lastSentCommand) {
+        _scheduleTokenTimer();
+      }
+    });
+  }
+
+  void _flushPendingCommand() {
+    if (_pendingCommand == null) return;
+    if (_pendingCommand == _lastSentCommand) return;
+
+    final cmd = _pendingCommand!;
+    _lastSentCommand = cmd;
+
     try {
       if (_channel != null) {
         _channel!.sink.add(cmd);
@@ -162,17 +546,41 @@ class ConnectionManager {
       } else {
         // fallback to HTTP
         final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
-        http.get(url).then((r) {
-          // ignore: avoid_print
-          print('HTTP fallback sent: $cmd | ${r.statusCode}');
-        }).catchError((e) {
-          // ignore: avoid_print
-          print('Fallback error: $e');
-        });
+        http
+            .get(url)
+            .then((r) {
+              // ignore: avoid_print
+              print('HTTP fallback sent: $cmd | ${r.statusCode}');
+            })
+            .catchError((e) {
+              // ignore: avoid_print
+              print('Fallback error: $e');
+            });
       }
     } catch (e) {
       // ignore: avoid_print
       print('Send error: $e');
+    }
+  }
+
+  void send(String cmd) {
+    _pendingCommand = cmd;
+
+    // Start connection if not already connected
+    if (_channel == null && !_isConnecting) {
+      _start();
+    }
+
+    _refillTokens();
+    if (_pendingCommand != _lastSentCommand && _tokens > 0) {
+      _flushPendingCommand();
+      _tokens--;
+    }
+
+    if (_tokens == 0 &&
+        _pendingCommand != _lastSentCommand &&
+        _sendThrottleTimer == null) {
+      _scheduleTokenTimer();
     }
   }
 }
@@ -219,8 +627,8 @@ class MyApp extends StatelessWidget {
         '/': (ctx) => const WelcomePage(),
         '/modes': (ctx) => const ModeSelectionPage(),
         '/drive': (ctx) => const DrivingPage(),
-        '/scan': (ctx) => const AutonomousDrivingPage(),
         '/draw': (ctx) => const DrawingPage(),
+        '/autonomous': (ctx) => const AutonomousDrivingPage(),
       },
     );
   }
@@ -498,19 +906,17 @@ class ModeSelectionPage extends StatelessWidget {
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.videogame_asset),
-            title: const Text('Autonomic driving'),
-            subtitle: const Text(
-              'Drive without crashung in the room',
-            ),
-            onTap: () => Navigator.pushNamed(context, '/scan'),
-          ),
-          const Divider(),
-          ListTile(
             leading: const Icon(Icons.brush),
             title: const Text('Drawing the route'),
             subtitle: const Text('Draw the route the car should follow'),
             onTap: () => Navigator.pushNamed(context, '/draw'),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.smart_toy),
+            title: const Text('Autonomous Driving'),
+            subtitle: const Text('Let the car drive autonomously with sensors'),
+            onTap: () => Navigator.pushNamed(context, '/autonomous'),
           ),
         ],
       ),
@@ -527,7 +933,7 @@ class ModePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title', textAlign: TextAlign.center)),
+      body: Center(child: Text(title, textAlign: TextAlign.center)),
     );
   }
 }
@@ -544,6 +950,7 @@ class DrivingPage extends StatefulWidget {
 class _DrivingPageState extends State<DrivingPage> {
   Timer? _timer;
   Timer? _reverseTimer;
+  Timer? _commandTimer;
   double speed = 0.0; // positive = forward, negative = reverse (km/h)
   double throttle = 0.0; // -1..1 (driven by button / reverse)
   double brake = 0.0; // 0..1
@@ -561,53 +968,6 @@ class _DrivingPageState extends State<DrivingPage> {
 
   // New: invert controls toggle
   bool controlsInverted = false;
-
-  // verhindert mehrfaches feuern bei gehaltenen Tasten
-  final Map<LogicalKeyboardKey, bool> _keyPressed = {};
-
-  // Keyboard handler für Pfeiltasten und WASD
-  void _handleKey(RawKeyEvent event) {
-    final key = event.logicalKey;
-    final isDown = event is RawKeyDownEvent;
-
-    if (_keyPressed[key] == isDown) return;
-    _keyPressed[key] = isDown;
-
-    switch (key.keyLabel) {
-      // Pfeiltasten
-      case 'Arrow Up':
-      case 'W':
-      case 'w':
-        _inputAccelerate(isDown);
-        break;
-      case 'Arrow Down':
-      case 'S':
-      case 's':
-        _inputBrake(isDown);
-        break;
-      case 'Arrow Left':
-      case 'A':
-      case 'a':
-        _inputSteerLeft(isDown);
-        break;
-      case 'Arrow Right':
-      case 'D':
-      case 'd':
-        _inputSteerRight(isDown);
-        break;
-      case ' ':
-        if (isDown) {
-          // Space = Emergency Stop
-          _inputAccelerate(false);
-          _inputBrake(false);
-          _inputSteerLeft(false);
-          _inputSteerRight(false);
-        }
-        break;
-      default:
-        break;
-    }
-  }
 
   // --- Input wrappers that respect the inverted flag ---
   void _inputAccelerate(bool down) {
@@ -642,6 +1002,37 @@ class _DrivingPageState extends State<DrivingPage> {
       _pressSteerLeft(down);
     } else {
       _pressSteerRight(down);
+    }
+  }
+
+  void _handleDrivingKey(RawKeyEvent event) {
+    final key = event.logicalKey;
+    final isDown = event is RawKeyDownEvent;
+
+    if (keyPressed[key] == isDown) return;
+    keyPressed[key] = isDown;
+
+    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.keyW) {
+      controlsInverted ? _inputBrake(isDown) : _inputAccelerate(isDown);
+    } else if (key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.keyS) {
+      controlsInverted ? _inputAccelerate(isDown) : _inputBrake(isDown);
+    } else if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.keyA) {
+      _inputSteerLeft(isDown);
+    } else if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.keyD) {
+      _inputSteerRight(isDown);
+    } else if (key == LogicalKeyboardKey.space && isDown) {
+      setState(() {
+        accelerating = false;
+        braking = false;
+        steerLeft = false;
+        steerRight = false;
+        reversing = false;
+      });
+      activeCommands.clear();
+      updateCommand();
     }
   }
 
@@ -709,7 +1100,16 @@ class _DrivingPageState extends State<DrivingPage> {
   void dispose() {
     _timer?.cancel();
     _reverseTimer?.cancel();
+    _commandTimer?.cancel();
     super.dispose();
+  }
+
+  void _startCommandTimer() {
+    _commandTimer?.cancel();
+    _commandTimer = Timer(const Duration(milliseconds: 10), () {
+      activeCommands.clear();
+      updateCommand();
+    });
   }
 
   String _speedText() => '${speed.abs().toInt()} km/h';
@@ -717,18 +1117,20 @@ class _DrivingPageState extends State<DrivingPage> {
 
   // Helfer für gedrückt/losgelassen Verhalten
   void _pressAccelerate(bool down, {bool fromVirtual = false}) {
-    setState(() {
-      accelerating = down;
-
-      if (down) {
+    if (down) {
+      setState(() {
+        accelerating = true;
         reversing = false;
         activeCommands.add("forward");
-      } else {
+        updateCommand();
+        _startCommandTimer();
+      });
+    } else {
+      setState(() {
+        accelerating = false;
         activeCommands.remove("forward");
-      }
-
-      updateCommand();
-    });
+      });
+    }
   }
 
   void _pressBrake(bool down, {bool fromVirtual = false}) {
@@ -737,6 +1139,7 @@ class _DrivingPageState extends State<DrivingPage> {
 
       activeCommands.add("backward");
       updateCommand();
+      _startCommandTimer();
 
       _reverseTimer?.cancel();
       _reverseTimer = Timer(const Duration(milliseconds: 700), () {
@@ -753,24 +1156,31 @@ class _DrivingPageState extends State<DrivingPage> {
       });
 
       activeCommands.remove("backward");
-      updateCommand();
     }
   }
 
   void _pressSteerLeft(bool down) {
-    setState(() => steerLeft = down);
-
-    down ? activeCommands.add("left") : activeCommands.remove("left");
-
-    updateCommand();
+    if (down) {
+      setState(() => steerLeft = true);
+      activeCommands.add("left");
+      updateCommand();
+      _startCommandTimer();
+    } else {
+      setState(() => steerLeft = false);
+      activeCommands.remove("left");
+    }
   }
 
   void _pressSteerRight(bool down) {
-    setState(() => steerRight = down);
-
-    down ? activeCommands.add("right") : activeCommands.remove("right");
-
-    updateCommand();
+    if (down) {
+      setState(() => steerRight = true);
+      activeCommands.add("right");
+      updateCommand();
+      _startCommandTimer();
+    } else {
+      setState(() => steerRight = false);
+      activeCommands.remove("right");
+    }
   }
 
   Widget _controlButton({
@@ -808,7 +1218,8 @@ class _DrivingPageState extends State<DrivingPage> {
     final theme = Theme.of(context);
     return RawKeyboardListener(
       focusNode: _focusNode,
-      onKey: _handleKey,
+      autofocus: true,
+      onKey: _handleDrivingKey,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Driving'),
@@ -1102,202 +1513,6 @@ class _DrivingPageState extends State<DrivingPage> {
   }
 }
 
-/* ---------------- AutonomousDrivingPage ---------------- */
-class AutonomousDrivingPage extends StatefulWidget {
-  const AutonomousDrivingPage({super.key});
-
-  @override
-  State<AutonomousDrivingPage> createState() => _AutonomousDrivingPageState();
-}
-
-class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
-  bool isRunning = false;
-  double maxSpeed = 15.0; // km/h
-  
-  @override
-  void dispose() {
-    if (isRunning) {
-      _stopAutonomous();
-    }
-    super.dispose();
-  }
-  
-  void _startAutonomous() {
-    setState(() => isRunning = true);
-    // Send command to ESP32
-    isRunning ? activeCommands.add("auto") : activeCommands.remove("auto");
-
-    updateCommand();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Autonomous mode started'),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-  
-  void _stopAutonomous() {
-    setState(() => isRunning = false);
-    // Send stop command
-    isRunning ? activeCommands.add("autoStop") : activeCommands.remove("autoStop");
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Autonomous mode stopped'),
-        backgroundColor: Colors.orange,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-  
-  void _emergencyStop() {
-    setState(() => isRunning = false);
-    // Send emergency stop
-    ConnectionManager.instance.send('emergency_stop');
-    sendCommand('stop');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('EMERGENCY STOP ACTIVATED!'),
-        backgroundColor: Colors.red,
-        duration: Duration(seconds: 3),
-      ),
-    );
-  }
-  
-   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Autonomous Driving'),
-        centerTitle: true,
-        actions: const [ConnectionStatus()],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.red.shade700, Colors.grey.shade900],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  
-                  // Sensor Visualization
-                  Card(
-                    color: Colors.black26,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 20),
-                          
-                          // Sensor visualization layout
-                          SizedBox(
-                            height: 250,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                // Car icon in center
-                                Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white12,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: isRunning ? Colors.greenAccent : Colors.white24,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.directions_car,
-                                    size: 50,
-                                    color: isRunning ? Colors.greenAccent : Colors.white70,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  // Control Buttons
-                  if (!isRunning)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 60,
-                      child: ElevatedButton.icon(
-                        onPressed: _startAutonomous,
-                        icon: const Icon(Icons.play_arrow, size: 32),
-                        label: const Text(
-                          'START AUTONOMOUS MODE',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    )
-                  else
-                    SizedBox(
-                      width: double.infinity,
-                      height: 60,
-                      child: ElevatedButton.icon(
-                        onPressed: _stopAutonomous,
-                        icon: const Icon(Icons.stop, size: 32),
-                        label: const Text(
-                          'STOP AUTONOMOUS MODE',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color.fromARGB(255, 255, 79, 21),
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
-                  
-                  const SizedBox(height: 12),
-                  
-                  // Emergency Stop Button (always visible)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 60,
-                    child: ElevatedButton.icon(
-                      onPressed: _emergencyStop,
-                      icon: const Icon(Icons.warning, size: 32),
-                      label: const Text(
-                        'EMERGENCY STOP',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade700,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 /* ---------------- DrawingPage (Draw) ---------------- */
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
@@ -1308,6 +1523,263 @@ class DrawingPage extends StatefulWidget {
 
 class _DrawingPageState extends State<DrawingPage> {
   final List<Offset> _points = [];
+  
+  // Playback-Variables
+  PlaybackState _playbackState = PlaybackState.idle;
+  List<RouteSegment> _segments = [];
+  List<RouteCommand> _commands = [];
+  int _currentCommandIndex = 0;
+  double _speedMultiplier = 1.0;
+  Timer? _playbackTimer;
+
+  // ========== PLAYBACK Control ==========
+  
+  void _startPlayback() async {
+    // is there a route available
+    if (_points.length < 2) {
+      _showMessage('Please draw a route.');
+      return;
+    }
+    
+    // is the car connected 
+    if (!ConnectionManager.instance.connected.value) {
+      _showMessage('No connection to the car.');
+      return;
+    }
+    
+    // set playing status
+    setState(() {
+      _playbackState = PlaybackState.playing;
+      _currentCommandIndex = 0;
+    });
+    
+    // analyse route; process points into segments
+    _segments = RouteProcessor.processRoute(_points);
+    
+    // generate commands based on segments
+    _commands = CommandGenerator.generateCommands(
+      _segments,
+      _speedMultiplier,
+    );
+    
+    // execute command
+    _executeNextCommand();
+  }
+  
+  void _pausePlayback() {
+    // set status paused
+    setState(() {
+      _playbackState = PlaybackState.paused;
+    });
+    
+    // stop timer; no further commands
+    _playbackTimer?.cancel();
+    
+    // stop car
+    sendCommand('stop');
+  }
+  
+  void _resumePlayback() {
+    // status back on play
+    setState(() {
+      _playbackState = PlaybackState.playing;
+    });
+    
+    // execute next command
+    _executeNextCommand();
+  }
+  
+  void _stopPlayback() {
+    // Back to the beginning 
+    setState(() {
+      _playbackState = PlaybackState.idle;
+      _currentCommandIndex = 0;
+    });
+    
+    // stop timer 
+    _playbackTimer?.cancel();
+    
+    // stop car
+    sendCommand('stop');
+  }
+  
+  void _executeNextCommand() {
+    // check if state is playing 
+    if (_playbackState != PlaybackState.playing) return;
+    
+    // check connection
+    if (!ConnectionManager.instance.connected.value) {
+      _pausePlayback();
+      _showMessage('Connection lost.');
+      return;
+    }
+    
+    // check whether end is reached
+    if (_currentCommandIndex >= _commands.length) {
+      _stopPlayback();
+      setState(() {
+        _playbackState = PlaybackState.completed;
+      });
+      _showMessage('Route completed.');
+      return;
+    }
+    
+    // get current command
+    var cmd = _commands[_currentCommandIndex];
+    
+    // send command to car 
+    sendCommand(cmd.command);
+    
+    // start timer for next command
+    _playbackTimer = Timer(
+      Duration(milliseconds: cmd.duration),
+      () {
+        // if time is up, next command
+        setState(() {
+          _currentCommandIndex++;
+        });
+        _executeNextCommand();
+      },
+    );
+  }
+  
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+  
+  @override
+  void dispose() {
+    // Clear when closing page
+    _playbackTimer?.cancel();
+    if (_playbackState == PlaybackState.playing) {
+      sendCommand('stop');
+    }
+    super.dispose();
+  }
+
+  // ========== UI KOMPONENTS ==========
+  
+  Widget _buildPlaybackControls() {
+    return Container(
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          _buildProgressIndicator(),
+          SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildPlayPauseButton(),
+              _buildStopButton(),
+            ],
+          ),
+          SizedBox(height: 12),
+          _buildSpeedSlider(),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildProgressIndicator() {
+    // Calculate Process
+    double progress = _commands.isEmpty 
+      ? 0.0 
+      : _currentCommandIndex / _commands.length;
+      
+    return Column(
+      children: [
+        // Progress bar 
+        LinearProgressIndicator(
+          value: progress,
+          backgroundColor: Colors.grey.shade700,
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+        ),
+        SizedBox(height: 4),
+        // Text with current segment number
+        Text(
+          'Segment ${_currentCommandIndex + 1} / ${_commands.length}',
+          style: TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildPlayPauseButton() {
+    bool isPlaying = _playbackState == PlaybackState.playing;
+    bool isPaused = _playbackState == PlaybackState.paused;
+    bool canPlay = _points.length > 1 && 
+                   (_playbackState == PlaybackState.idle || isPaused);
+    
+    return ElevatedButton.icon(
+      // paused → Resume, otherwise → Start or Pause
+      onPressed: canPlay
+        ? (isPaused ? _resumePlayback : _startPlayback)
+        : (isPlaying ? _pausePlayback : null),
+      icon: Icon(
+        isPlaying ? Icons.pause : Icons.play_arrow,
+        color: Colors.white,
+      ),
+      label: Text(
+        isPlaying ? 'Pause' : (isPaused ? 'Resume' : 'Play'),
+        style: TextStyle(color: Colors.white),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isPlaying 
+          ? Colors.orange.shade700  
+          : Colors.green.shade700,  
+        minimumSize: Size(120, 50),
+      ),
+    );
+  }
+  
+  Widget _buildStopButton() {
+    bool canStop = _playbackState == PlaybackState.playing || 
+                   _playbackState == PlaybackState.paused;
+    
+    return ElevatedButton.icon(
+      onPressed: canStop ? _stopPlayback : null,
+      icon: Icon(Icons.stop, color: Colors.white),
+      label: Text('Stop', style: TextStyle(color: Colors.white)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.red.shade700,
+        minimumSize: Size(120, 50),
+      ),
+    );
+  }
+  
+  Widget _buildSpeedSlider() {
+    return Column(
+      children: [
+        Text(
+          'Geschwindigkeit: ${_speedMultiplier.toStringAsFixed(1)}x',
+          style: TextStyle(color: Colors.white70),
+        ),
+        Slider(
+          value: _speedMultiplier,
+          min: 0.5,   // half Speed
+          max: 2.0,   // double speed
+          divisions: 15,
+          label: '${_speedMultiplier.toStringAsFixed(1)}x',
+          onChanged: (value) {
+            setState(() {
+              _speedMultiplier = value;
+            });
+          },
+          activeColor: Colors.blue,
+          inactiveColor: Colors.grey.shade700,
+        ),
+      ],
+    );
+  }
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -1370,7 +1842,12 @@ class _DrawingPageState extends State<DrawingPage> {
                         },
                         onPanEnd: (_) => _points.add(Offset.zero),
                         child: CustomPaint(
-                          painter: _RoutePainter(_points),
+                          painter: _RoutePlaybackPainter(
+                            points: _points,
+                            segments: _segments,
+                            currentSegmentIndex: _currentCommandIndex,
+                            isPlaying: _playbackState == PlaybackState.playing,
+                          ),
                           child: Container(),
                         ),
                       );
@@ -1380,12 +1857,22 @@ class _DrawingPageState extends State<DrawingPage> {
               ),
 
               Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                child: _buildPlaybackControls(),
+              ),
+              
+              SizedBox(height: 8),
+
+              Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: () => setState(() => _points.clear()),
+                      onPressed: () => setState(() {
+                        _points.clear();
+                        _stopPlayback();  
+                      }),
                       icon: const Icon(Icons.clear),
                       label: const Text('Clear'),
                     ),
@@ -1413,23 +1900,51 @@ class _DrawingPageState extends State<DrawingPage> {
   }
 }
 
-class _RoutePainter extends CustomPainter {
+class _RoutePlaybackPainter extends CustomPainter {
   final List<Offset> points;
-  _RoutePainter(this.points);
-
+  final List<RouteSegment> segments;
+  final int currentSegmentIndex;
+  final bool isPlaying;
+  
+  _RoutePlaybackPainter({
+    required this.points,
+    required this.segments,
+    required this.currentSegmentIndex,
+    required this.isPlaying,
+  });
+  
   @override
   void paint(Canvas canvas, Size size) {
-    final paintLine = Paint()
+    // draw complete route
+    _drawCompletePath(canvas);
+    
+    // when playback active
+    if (isPlaying && segments.isNotEmpty) {
+      // already driven segments
+      _drawCompletedSegments(canvas);
+      
+      // current segment
+      if (currentSegmentIndex < segments.length) {
+        _drawCurrentSegment(canvas);
+        _drawCarPosition(canvas);
+      }
+    }
+    
+    // draw points
+    _drawPoints(canvas);
+  }
+  
+  void _drawCompletePath(Canvas canvas) {
+    final paint = Paint()
       ..color = const Color.fromARGB(255, 44, 27, 27)
       ..strokeWidth = 4.0
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
-    final paintDot = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
+      
     final path = Path();
     bool started = false;
-    for (final p in points) {
+    
+    for (var p in points) {
       if (p == Offset.zero) {
         started = false;
         continue;
@@ -1441,13 +1956,415 @@ class _RoutePainter extends CustomPainter {
         path.lineTo(p.dx, p.dy);
       }
     }
-    canvas.drawPath(path, paintLine);
+    
+    canvas.drawPath(path, paint);
+  }
+  
+  void _drawCompletedSegments(Canvas canvas) {
+    final paint = Paint()
+      ..color = Colors.green.shade400
+      ..strokeWidth = 5.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+      
+    // draw segment to current
+    for (int i = 0; i < currentSegmentIndex && i < segments.length; i++) {
+      var seg = segments[i];
+      canvas.drawLine(seg.start, seg.end, paint);
+    }
+  }
+  
+  void _drawCurrentSegment(Canvas canvas) {
+    var seg = segments[currentSegmentIndex];
+    
+    final paint = Paint()
+      ..color = Colors.yellow.shade600
+      ..strokeWidth = 6.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+      
+    canvas.drawLine(seg.start, seg.end, paint);
+  }
+  
+  void _drawCarPosition(Canvas canvas) {
+    var seg = segments[currentSegmentIndex];
+    
+    // car as red dot
+    final paint = Paint()
+      ..color = Colors.red.shade700
+      ..style = PaintingStyle.fill;
+      
+    canvas.drawCircle(seg.start, 8, paint);
+    
+    // direction arrow
+    final arrowPaint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+      
+    // calculate arrow direction 
+    double angle = seg.angle * pi / 180;
+    Offset arrowEnd = seg.start + Offset(
+      cos(angle) * 15,
+      sin(angle) * 15,
+    );
+    
+    canvas.drawLine(seg.start, arrowEnd, arrowPaint);
+  }
+  
+  void _drawPoints(Canvas canvas) {
+    final paintDot = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+      
     for (final p in points) {
       if (p == Offset.zero) continue;
       canvas.drawCircle(p, 2.5, paintDot);
     }
   }
+  
+  @override
+  bool shouldRepaint(covariant _RoutePlaybackPainter oldDelegate) {
+    // draw new
+    return oldDelegate.currentSegmentIndex != currentSegmentIndex ||
+           oldDelegate.isPlaying != isPlaying ||
+           oldDelegate.points.length != points.length;
+  }
+}
+
+/* ---------------- AutonomousDrivingPage ---------------- */
+class AutonomousDrivingPage extends StatefulWidget {
+  const AutonomousDrivingPage({super.key});
 
   @override
-  bool shouldRepaint(covariant _RoutePainter oldDelegate) => true;
+  State<AutonomousDrivingPage> createState() => _AutonomousDrivingPageState();
+}
+
+class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
+  bool isRunning = false;
+  double maxSpeed = 15.0;
+  bool _sensorCheckDone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ConnectionManager.instance.connected.addListener(_onConnectionChanged);
+    if (ConnectionManager.instance.connected.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showSensorPopup();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    ConnectionManager.instance.connected.removeListener(_onConnectionChanged);
+    if (isRunning) _stopAutonomous();
+    super.dispose();
+  }
+
+  void _onConnectionChanged() {
+    if (!mounted) return;
+    if (ConnectionManager.instance.connected.value) {
+      if (!_sensorCheckDone) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showSensorPopup();
+        });
+      }
+    } else {
+      setState(() {
+        _sensorCheckDone = false;
+        isRunning = false;
+      });
+    }
+  }
+
+  Future<void> _showSensorPopup() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sensor-Prüfung'),
+        content: const Text('Ist ein Sensor im Auto verbaut?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Nein'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Ja'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _sensorCheckDone = true);
+    if (result == true) {
+      ConnectionManager.instance.send('sensorOn');
+    }
+  }
+
+  void _startAutonomous() {
+    if (!_sensorCheckDone) return;
+    setState(() => isRunning = true);
+    ConnectionManager.instance.send('auto');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode started'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _stopAutonomous() {
+    setState(() => isRunning = false);
+    // Send stop command
+    ConnectionManager.instance.send('autoStop');
+    sendCommand('stop');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Autonomous mode stopped'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _emergencyStop() {
+    setState(() => isRunning = false);
+    // Send emergency stop
+    ConnectionManager.instance.send('emergency_stop');
+    sendCommand('stop');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('EMERGENCY STOP ACTIVATED!'),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Color _getDistanceColor(double distance) {
+    if (distance < 20) return Colors.red;
+    if (distance < 40) return Colors.orange;
+    return Colors.green;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Autonomous Driving'),
+        centerTitle: true,
+        actions: const [ConnectionStatus()],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.red.shade700, Colors.grey.shade900],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+
+                  // Sensor Visualization
+                  Card(
+                    color: Colors.black26,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          const Text(
+                            'Sensor Readings',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Sensor visualization layout
+                          SizedBox(
+                            height: 250,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Car icon in center
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white12,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isRunning
+                                          ? Colors.greenAccent
+                                          : Colors.white24,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.directions_car,
+                                    size: 50,
+                                    color: isRunning
+                                        ? Colors.greenAccent
+                                        : Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Control Buttons
+                  if (!_sensorCheckDone)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8.0),
+                      child: Text(
+                        'Bitte verbinde dich mit dem Auto für die Sensor-Prüfung.',
+                        style: TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  if (!isRunning)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _sensorCheckDone ? _startAutonomous : null,
+                        icon: const Icon(Icons.play_arrow, size: 32),
+                        label: const Text(
+                          'START AUTONOMOUS MODE',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: _stopAutonomous,
+                        icon: const Icon(Icons.stop, size: 32),
+                        label: const Text(
+                          'STOP AUTONOMOUS MODE',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color.fromARGB(
+                            255,
+                            255,
+                            79,
+                            21,
+                          ),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Emergency Stop Button (always visible)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 60,
+                    child: ElevatedButton.icon(
+                      onPressed: _emergencyStop,
+                      icon: const Icon(Icons.warning, size: 32),
+                      label: const Text(
+                        'EMERGENCY STOP',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Helper widget for sensor display
+class _SensorDisplay extends StatelessWidget {
+  final double distance;
+  final String label;
+  final Color color;
+
+  const _SensorDisplay({
+    required this.distance,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "20 cm",
+            style: TextStyle(
+              color: color,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
