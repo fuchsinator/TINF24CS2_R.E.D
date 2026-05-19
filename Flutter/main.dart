@@ -276,13 +276,13 @@ class RouteProcessor {
       double angleDiff = seg.angleDifference(next);
       
       SegmentType type;
-      if (angleDiff.abs() < 15) {
+      if (angleDiff.abs() < 10) {
         type = SegmentType.straight;
-      } else if (angleDiff < -45) {
+      } else if (angleDiff < -25) {
         type = SegmentType.sharpRight;
       } else if (angleDiff < 0) {
         type = SegmentType.rightCurve;
-      } else if (angleDiff > 45) {
+      } else if (angleDiff > 25) {
         type = SegmentType.sharpLeft;
       } else {
         type = SegmentType.leftCurve;
@@ -318,34 +318,63 @@ class CommandGenerator {
     for (int i = 0; i < segments.length; i++) {
       var seg = segments[i];
       
+      // calculate basis duration
       int baseDuration = (seg.distance * 10).round();
       int duration = (baseDuration / speedMultiplier).round();
       
-      String command = _generateCommandForSegment(seg);
+      // min 100 ms (prevents too short commands)
+      if (duration < 100) duration = 100;
       
-      commands.add(RouteCommand(
-        command: command,
-        duration: duration,
-        segmentIndex: i,
-      ));
+      // different strategies depending on segment type
+      switch (seg.type) {
+        case SegmentType.straight:
+          // drive straight: just drive forward
+          commands.add(RouteCommand(
+            command: "forward",
+            duration: duration,
+            segmentIndex: i,
+          ));
+          break;
+          
+        case SegmentType.leftCurve:
+        case SegmentType.rightCurve:
+          // curve: first turn (40%), then drive (60%)
+          String turnCmd = seg.type == SegmentType.leftCurve ? "left" : "right";
+          
+          int turnDuration = (duration * 0.7).round();
+          int driveDuration = duration - turnDuration;
+          
+          // step 1: turn
+          commands.add(RouteCommand(
+            command: turnCmd,
+            duration: turnDuration,
+            segmentIndex: i,
+          ));
+          
+          // step 2: drive
+          commands.add(RouteCommand(
+            command: "forward",
+            duration: driveDuration,
+            segmentIndex: i,
+          ));
+          break;
+          
+        case SegmentType.sharpLeft:
+        case SegmentType.sharpRight:
+          // curve: first sharp turn (80%), then drive (20%)
+          String sharpTurnCmd = seg.type == SegmentType.sharpLeft ? "left" : "right";
+          int sharpTurnDuration = (duration * 3.0).round();
+          
+          commands.add(RouteCommand(
+            command: sharpTurnCmd,
+            duration: sharpTurnDuration,
+            segmentIndex: i,
+          ));
+          break;
+      }
     }
     
     return commands;
-  }
-  
-  static String _generateCommandForSegment(RouteSegment seg) {
-    switch (seg.type) {
-      case SegmentType.straight:
-        return "forward";
-      case SegmentType.leftCurve:
-        return "forward,left";
-      case SegmentType.rightCurve:
-        return "forward,right";
-      case SegmentType.sharpLeft:
-        return "left";
-      case SegmentType.sharpRight:
-        return "right";
-    }
   }
 }
 
