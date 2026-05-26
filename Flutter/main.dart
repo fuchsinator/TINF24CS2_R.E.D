@@ -276,13 +276,13 @@ class RouteProcessor {
       double angleDiff = seg.angleDifference(next);
       
       SegmentType type;
-      if (angleDiff.abs() < 10) {
+      if (angleDiff.abs() < 3) {
         type = SegmentType.straight;
-      } else if (angleDiff < -25) {
+      } else if (angleDiff > 20) {
         type = SegmentType.sharpRight;
-      } else if (angleDiff < 0) {
+      } else if (angleDiff > 0) {
         type = SegmentType.rightCurve;
-      } else if (angleDiff > 25) {
+      } else if (angleDiff < -20) {
         type = SegmentType.sharpLeft;
       } else {
         type = SegmentType.leftCurve;
@@ -323,7 +323,7 @@ class CommandGenerator {
       int duration = (baseDuration / speedMultiplier).round();
       
       // min 100 ms (prevents too short commands)
-      if (duration < 100) duration = 100;
+      if (duration < 300) duration = 300;
       
       // different strategies depending on segment type
       switch (seg.type) {
@@ -338,10 +338,10 @@ class CommandGenerator {
           
         case SegmentType.leftCurve:
         case SegmentType.rightCurve:
-          // curve: first turn (40%), then drive (60%)
+          // curve: first turn, then drive 
           String turnCmd = seg.type == SegmentType.leftCurve ? "left" : "right";
           
-          int turnDuration = (duration * 0.7).round();
+          int turnDuration = (duration * 0.9).round();
           int driveDuration = duration - turnDuration;
           
           // step 1: turn
@@ -363,7 +363,7 @@ class CommandGenerator {
         case SegmentType.sharpRight:
           // curve: first sharp turn (80%), then drive (20%)
           String sharpTurnCmd = seg.type == SegmentType.sharpLeft ? "left" : "right";
-          int sharpTurnDuration = (duration * 3.0).round();
+          int sharpTurnDuration = (duration * 5.0).round();
           
           commands.add(RouteCommand(
             command: sharpTurnCmd,
@@ -1874,7 +1874,9 @@ class _DrawingPageState extends State<DrawingPage> {
                           painter: _RoutePlaybackPainter(
                             points: _points,
                             segments: _segments,
-                            currentSegmentIndex: _currentCommandIndex,
+                            currentSegmentIndex: _currentCommandIndex < _commands.length 
+                              ? _commands[_currentCommandIndex].segmentIndex 
+                              : _segments.length,
                             isPlaying: _playbackState == PlaybackState.playing,
                           ),
                           child: Container(),
