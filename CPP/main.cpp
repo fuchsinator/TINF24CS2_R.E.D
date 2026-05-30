@@ -33,7 +33,7 @@ bool turnBool = 1; // for autonomous turning
 int driveTime = 10;
 
 //Check if Sensor is on, has to be clicked in Flutter with Popup
-bool sensorMode = 0;
+bool sensorMode = 1;
 
 #define DEBUGGING true
 
@@ -50,6 +50,7 @@ void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
     if(msg.indexOf("auto")>=0) currentMode=1;
     if(msg.indexOf("autoStop")>=0) currentMode=0;
     if(msg.indexOf("sensorOn")>=0) sensorMode=1;
+    if(msg.indexOf("sensorOff")>=0) sensorMode=0;
     ws.sendTXT(num, "ACK");           // optional ack
   }
 }
