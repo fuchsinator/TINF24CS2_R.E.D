@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
+import 'dart:math';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -112,6 +113,318 @@ void handleKey(RawKeyEvent event) {
     _startGlobalCommandTimer();
   }
 }
+// ============ Route Playback ============
+
+enum SegmentType {
+  straight, //Straight line
+  leftCurve, //Curve to the left
+  rightCurve, //Curve to the right
+  sharpLeft, // sharp Curve to the left (first steering)
+  sharpRight, // sharp Curve to the right (first steering)
+}
+
+class RouteSegment {
+  final Offset start; //starting point
+  final Offset end; //ending point
+  final double distance; //length of segment
+  final double angle; //angle
+  final double curvature; //curvature of segment
+  final SegmentType type; // which segment type
+
+  RouteSegment({
+    required this.start,
+    required this.end,
+    required this.distance,
+    required this.angle,
+    required this.curvature,
+    required this.type,
+  });
+
+  double angleDifference(RouteSegment next) {
+    // calculate the difference between the current and next segment's angles
+    double diff = next.angle - this.angle;
+    while (diff > 180) diff -= 360;
+    while (diff < -180) diff += 360;
+    return diff;
+  }
+}
+
+enum PlaybackState {
+  //Which status in the UI
+  idle,
+  playing,
+  paused,
+  completed,
+  error,
+}
+
+class RouteCommand {
+  // Command
+  final String command;
+  final int duration;
+  final int segmentIndex;
+
+  RouteCommand({
+    required this.command,
+    required this.duration,
+    required this.segmentIndex,
+  });
+}
+
+// ============ Route Processing ============
+
+class RouteProcessor {
+  static List<RouteSegment> processRoute(List<Offset> points) {
+    List<Offset> cleanPoints = _cleanPoints(points);
+    List<Offset> smoothPoints = _smoothPoints(cleanPoints);
+    List<RouteSegment> segments = _createSegments(smoothPoints);
+    _analyzeVectors(segments);
+    _classifySegments(segments);
+    return segments;
+  }
+
+  static List<Offset> _cleanPoints(List<Offset> points) {
+    List<Offset> cleaned = [];
+    const double minDistance = 30.0;
+
+    for (var point in points) {
+      if (point == Offset.zero) continue;
+
+      if (cleaned.isEmpty) {
+        cleaned.add(point);
+        continue;
+      }
+
+      double dist = (point - cleaned.last).distance;
+      if (dist >= minDistance) {
+        cleaned.add(point);
+      }
+    }
+
+    return cleaned;
+  }
+
+  static List<Offset> _smoothPoints(List<Offset> points) {
+    if (points.length < 3) return points;
+
+    List<Offset> smoothed = [points.first];
+
+    // 5-point window — makes gradual curves distinct from straight segments
+    for (int i = 1; i < points.length - 1; i++) {
+      final int lo = (i - 2).clamp(0, points.length - 1);
+      final int hi = (i + 2).clamp(0, points.length - 1);
+      final int count = hi - lo + 1;
+      double sumX = 0, sumY = 0;
+      for (int j = lo; j <= hi; j++) {
+        sumX += points[j].dx;
+        sumY += points[j].dy;
+      }
+      smoothed.add(Offset(sumX / count, sumY / count));
+    }
+
+    smoothed.add(points.last);
+    return smoothed;
+  }
+
+  static List<RouteSegment> _createSegments(List<Offset> points) {
+    List<RouteSegment> segments = [];
+
+    for (int i = 0; i < points.length - 1; i++) {
+      Offset start = points[i];
+      Offset end = points[i + 1];
+      double distance = (end - start).distance;
+
+      segments.add(
+        RouteSegment(
+          start: start,
+          end: end,
+          distance: distance,
+          angle: 0.0,
+          curvature: 0.0,
+          type: SegmentType.straight,
+        ),
+      );
+    }
+
+    return segments;
+  }
+
+  static void _analyzeVectors(List<RouteSegment> segments) {
+    for (int i = 0; i < segments.length; i++) {
+      var seg = segments[i];
+
+      double dx = seg.end.dx - seg.start.dx;
+      double dy = seg.end.dy - seg.start.dy;
+      double angle = atan2(dy, dx) * 180 / pi;
+      if (angle < 0) angle += 360;
+
+      double curvature = 0.0;
+      if (i > 0 && i < segments.length - 1) {
+        double prevAngle = segments[i - 1].angle;
+        double nextAngle = segments[i + 1].angle;
+        double angleDiff = _normalizeAngle(nextAngle - prevAngle);
+        curvature = angleDiff / 180.0;
+      }
+
+      segments[i] = RouteSegment(
+        start: seg.start,
+        end: seg.end,
+        distance: seg.distance,
+        angle: angle,
+        curvature: curvature,
+        type: seg.type,
+      );
+    }
+  }
+
+  static void _classifySegments(List<RouteSegment> segments) {
+    for (int i = 0; i < segments.length - 1; i++) {
+      var seg = segments[i];
+      var next = segments[i + 1];
+
+      double angleDiff = seg.angleDifference(next);
+
+      // Positive diff = clockwise (right), negative = counter-clockwise (left)
+      SegmentType type;
+      if (angleDiff.abs() < 3) {
+        type = SegmentType.straight;
+      } else if (angleDiff > 20) {
+        type = SegmentType.sharpRight;
+      } else if (angleDiff > 0) {
+        type = SegmentType.rightCurve;
+      } else if (angleDiff < -20) {
+        type = SegmentType.sharpLeft;
+      } else {
+        type = SegmentType.leftCurve;
+      }
+
+      segments[i] = RouteSegment(
+        start: seg.start,
+        end: seg.end,
+        distance: seg.distance,
+        angle: seg.angle,
+        curvature: seg.curvature,
+        type: type,
+      );
+    }
+  }
+
+  static double _normalizeAngle(double angle) {
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
+    return angle;
+  }
+}
+
+// ============ Command Generation ============
+
+class CommandGenerator {
+  static List<RouteCommand> generateCommands(
+    List<RouteSegment> segments,
+    double speedMultiplier,
+  ) {
+    List<RouteCommand> commands = [];
+
+    // Merge consecutive same-type curve segments so a corner that spans
+    // multiple segments after smoothing produces exactly ONE turn command.
+    final merged = _mergeConsecutiveCurves(segments);
+
+    for (int i = 0; i < merged.length; i++) {
+      var seg = merged[i];
+
+      // Full-throttle car: duration = distance on canvas × scale / speed.
+      // 30 px segment ≈ 120 ms at 1x — keeps short routes under 3 seconds.
+      int baseDuration = (seg.distance * 4).round();
+      int duration = (baseDuration / speedMultiplier).round();
+
+      // 80 ms minimum — below this the hardware barely reacts
+      if (duration < 80) duration = 80;
+
+      switch (seg.type) {
+        case SegmentType.straight:
+          commands.add(
+            RouteCommand(
+              command: "forward",
+              duration: duration,
+              segmentIndex: i,
+            ),
+          );
+          break;
+
+        case SegmentType.leftCurve:
+        case SegmentType.rightCurve:
+          final turnCmd = seg.type == SegmentType.leftCurve ? "left" : "right";
+          final turnDuration = (duration * 0.9).round();
+          final driveDuration = duration - turnDuration;
+          commands.add(
+            RouteCommand(
+              command: turnCmd,
+              duration: turnDuration,
+              segmentIndex: i,
+            ),
+          );
+          commands.add(
+            RouteCommand(
+              command: "forward",
+              duration: driveDuration,
+              segmentIndex: i,
+            ),
+          );
+          break;
+
+        case SegmentType.sharpLeft:
+        case SegmentType.sharpRight:
+          final sharpTurnCmd = seg.type == SegmentType.sharpLeft
+              ? "left"
+              : "right";
+          final sharpTurnDuration = (duration * 5.0).round();
+          commands.add(
+            RouteCommand(
+              command: sharpTurnCmd,
+              duration: sharpTurnDuration,
+              segmentIndex: i,
+            ),
+          );
+          break;
+      }
+    }
+
+    return commands;
+  }
+
+  // Merge runs of the same curve direction into one segment so that a corner
+  // spanning multiple smoothed segments produces exactly one turn command.
+  static List<RouteSegment> _mergeConsecutiveCurves(
+    List<RouteSegment> segments,
+  ) {
+    if (segments.isEmpty) return segments;
+
+    final result = <RouteSegment>[];
+    var current = segments[0];
+
+    for (int i = 1; i < segments.length; i++) {
+      final next = segments[i];
+      final isCurve = current.type != SegmentType.straight;
+
+      if (isCurve && next.type == current.type) {
+        // Absorb the next segment: extend end point and accumulate distance.
+        current = RouteSegment(
+          start: current.start,
+          end: next.end,
+          distance: current.distance + next.distance,
+          angle: current.angle,
+          curvature: current.curvature,
+          type: current.type,
+        );
+      } else {
+        result.add(current);
+        current = next;
+      }
+    }
+    result.add(current);
+    return result;
+  }
+}
 
 // ---------------- Connection Manager & UI ----------------
 
@@ -127,7 +440,14 @@ class ConnectionManager {
 
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
+  Timer? _sendThrottleTimer;
   Timer? _keepAliveTimer;
+  String? _pendingCommand;
+  String? _lastSentCommand;
+  int _tokens = 2;
+  final int _maxTokens = 2;
+  final Duration _tokenRefillInterval = const Duration(milliseconds: 200);
+  DateTime _lastTokenRefill = DateTime.now();
   int _reconnectSeconds = 1;
   final String wsUrl = 'ws://10.10.10.10:81/';
   final String wsFallback = 'ws://localhost:8080/';
@@ -245,35 +565,99 @@ class ConnectionManager {
       _channel?.sink.close(ws_status.normalClosure);
     } catch (_) {}
     _reconnectTimer?.cancel();
+    _sendThrottleTimer?.cancel();
     _keepAliveTimer?.cancel();
     connected.dispose();
   }
 
-  void send(String cmd) {
-    if (_channel == null && !_isConnecting) {
-      _start();
-    }
+  void _refillTokens() {
+    final now = DateTime.now();
+    final elapsed = now.difference(_lastTokenRefill);
+    final int cycles =
+        elapsed.inMilliseconds ~/ _tokenRefillInterval.inMilliseconds;
+    if (cycles <= 0) return;
+
+    _tokens = (_tokens + cycles).clamp(0, _maxTokens);
+    _lastTokenRefill = _lastTokenRefill.add(
+      Duration(milliseconds: _tokenRefillInterval.inMilliseconds * cycles),
+    );
+  }
+
+  Duration _timeUntilNextToken() {
+    final elapsed = DateTime.now().difference(_lastTokenRefill).inMilliseconds;
+    final int remaining = _tokenRefillInterval.inMilliseconds - elapsed;
+    return Duration(
+      milliseconds: remaining.clamp(0, _tokenRefillInterval.inMilliseconds),
+    );
+  }
+
+  void _scheduleTokenTimer() {
+    _sendThrottleTimer?.cancel();
+    _sendThrottleTimer = Timer(_timeUntilNextToken(), () {
+      _sendThrottleTimer = null;
+      _refillTokens();
+      if (_pendingCommand != null &&
+          _pendingCommand != _lastSentCommand &&
+          _tokens > 0) {
+        _flushPendingCommand();
+        _tokens--;
+      }
+      if (_tokens == 0 && _pendingCommand != _lastSentCommand) {
+        _scheduleTokenTimer();
+      }
+    });
+  }
+
+  void _flushPendingCommand() {
+    if (_pendingCommand == null) return;
+    if (_pendingCommand == _lastSentCommand) return;
+
+    final cmd = _pendingCommand!;
+    _lastSentCommand = cmd;
+
     try {
       if (_channel != null) {
         _channel!.sink.add(cmd);
         // ignore: avoid_print
         print('WS sent: $cmd');
       } else {
+        // fallback to HTTP
         final url = Uri.parse('http://10.10.10.10/move?cmd=$cmd');
         http
             .get(url)
             .then((r) {
               // ignore: avoid_print
-              print('HTTP sent: $cmd | ${r.statusCode}');
+              print('HTTP fallback sent: $cmd | ${r.statusCode}');
             })
             .catchError((e) {
               // ignore: avoid_print
-              print('HTTP error: $e');
+              print('Fallback error: $e');
             });
       }
     } catch (e) {
       // ignore: avoid_print
       print('Send error: $e');
+    }
+  }
+
+  void send(String cmd) {
+    _pendingCommand = cmd;
+
+    // Start connection if not already connected
+    if (_channel == null && !_isConnecting) {
+      _start();
+    }
+
+    _refillTokens();
+    if (_pendingCommand != _lastSentCommand && _tokens > 0) {
+      _flushPendingCommand();
+      _tokens--;
+    }
+
+    if (_tokens == 0 &&
+        _pendingCommand != _lastSentCommand &&
+        _sendThrottleTimer == null) {
+      _scheduleTokenTimer();
     }
   }
 }
@@ -643,6 +1027,7 @@ class DrivingPage extends StatefulWidget {
 class _DrivingPageState extends State<DrivingPage> {
   Timer? _timer;
   Timer? _reverseTimer;
+  Timer? _commandTimer;
   double speed = 0.0; // positive = forward, negative = reverse (km/h)
   double throttle = 0.0; // -1..1 (driven by button / reverse)
   double brake = 0.0; // 0..1
@@ -726,6 +1111,12 @@ class _DrivingPageState extends State<DrivingPage> {
       activeCommands.clear();
       updateCommand();
     }
+
+    // Watchdog: on web, keyup can be missed when the browser loses focus.
+    // If no key is still held after 500 ms, send stop automatically.
+    if (isDown) {
+      _startCommandTimer();
+    }
   }
 
   @override
@@ -792,30 +1183,50 @@ class _DrivingPageState extends State<DrivingPage> {
   void dispose() {
     _timer?.cancel();
     _reverseTimer?.cancel();
+    _commandTimer?.cancel();
     super.dispose();
+  }
+
+  // Safety watchdog: if keyboard focus is lost and keyup is never received,
+  // stop the car after 500 ms of inactivity — but only when no key is tracked as held.
+  void _startCommandTimer() {
+    _commandTimer?.cancel();
+    _commandTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!keyPressed.values.any((pressed) => pressed)) {
+        if (activeCommands.isNotEmpty) {
+          activeCommands.clear();
+          updateCommand();
+        }
+      }
+    });
   }
 
   String _speedText() => '${speed.abs().toInt()} km/h';
   String _rpmText() => '${(speed.abs() * 30).toInt()} rpm';
 
+  // Helfer für gedrückt/losgelassen Verhalten
   void _pressAccelerate(bool down, {bool fromVirtual = false}) {
-    setState(() {
-      accelerating = down;
-      if (down) {
+    if (down) {
+      setState(() {
+        accelerating = true;
         reversing = false;
-        activeCommands.add("forward");
-      } else {
-        activeCommands.remove("forward");
-      }
+      });
+      activeCommands.add("forward");
       updateCommand();
-    });
+    } else {
+      setState(() => accelerating = false);
+      activeCommands.remove("forward");
+      updateCommand();
+    }
   }
 
   void _pressBrake(bool down, {bool fromVirtual = false}) {
     if (down) {
       setState(() => braking = true);
+
       activeCommands.add("backward");
       updateCommand();
+
       _reverseTimer?.cancel();
       _reverseTimer = Timer(const Duration(milliseconds: 700), () {
         if (braking && speed.abs() < 1.0) {
@@ -824,25 +1235,39 @@ class _DrivingPageState extends State<DrivingPage> {
       });
     } else {
       _reverseTimer?.cancel();
+
       setState(() {
         braking = false;
         reversing = false;
       });
+
       activeCommands.remove("backward");
       updateCommand();
     }
   }
 
   void _pressSteerLeft(bool down) {
-    setState(() => steerLeft = down);
-    down ? activeCommands.add("left") : activeCommands.remove("left");
-    updateCommand();
+    if (down) {
+      setState(() => steerLeft = true);
+      activeCommands.add("left");
+      updateCommand();
+    } else {
+      setState(() => steerLeft = false);
+      activeCommands.remove("left");
+      updateCommand();
+    }
   }
 
   void _pressSteerRight(bool down) {
-    setState(() => steerRight = down);
-    down ? activeCommands.add("right") : activeCommands.remove("right");
-    updateCommand();
+    if (down) {
+      setState(() => steerRight = true);
+      activeCommands.add("right");
+      updateCommand();
+    } else {
+      setState(() => steerRight = false);
+      activeCommands.remove("right");
+      updateCommand();
+    }
   }
 
   Widget _controlButton({
@@ -852,11 +1277,13 @@ class _DrivingPageState extends State<DrivingPage> {
     double height = 120,
     Color? color,
   }) {
-    return GestureDetector(
+    // Listener with opaque hit-testing fires onPointerUp unconditionally — unlike
+    // GestureDetector whose onTapUp is swallowed once reclassified as long-press.
+    return Listener(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => onHold(true),
-      onTapUp: (_) => onHold(false),
-      onTapCancel: () => onHold(false),
+      onPointerDown: (_) => onHold(true),
+      onPointerUp: (_) => onHold(false),
+      onPointerCancel: (_) => onHold(false),
       child: Container(
         width: width,
         height: height,
@@ -1186,6 +1613,230 @@ class DrawingPage extends StatefulWidget {
 class _DrawingPageState extends State<DrawingPage> {
   final List<Offset> _points = [];
 
+  // Playback-Variables
+  PlaybackState _playbackState = PlaybackState.idle;
+  List<RouteSegment> _segments = [];
+  List<RouteCommand> _commands = [];
+  int _currentCommandIndex = 0;
+  final double _speedMultiplier = 1.0;
+  Timer? _playbackTimer;
+
+  // ========== PLAYBACK Control ==========
+
+  void _startPlayback() async {
+    // Clear any leftover driving-mode state so no stale commands leak into playback
+    activeCommands.clear();
+    keyPressed.clear();
+
+    // is there a route available
+    if (_points.length < 2) {
+      _showMessage('Please draw a route.');
+      return;
+    }
+
+    // is the car connected
+    if (!ConnectionManager.instance.connected.value) {
+      _showMessage('No connection to the car.');
+      return;
+    }
+
+    // set playing status
+    setState(() {
+      _playbackState = PlaybackState.playing;
+      _currentCommandIndex = 0;
+    });
+
+    // analyse route; process points into segments
+    _segments = RouteProcessor.processRoute(_points);
+
+    // generate commands based on segments
+    _commands = CommandGenerator.generateCommands(_segments, _speedMultiplier);
+
+    // execute command
+    _executeNextCommand();
+  }
+
+  void _pausePlayback() {
+    // set status paused
+    setState(() {
+      _playbackState = PlaybackState.paused;
+    });
+
+    // stop timer; no further commands
+    _playbackTimer?.cancel();
+
+    // stop car
+    sendCommand('stop');
+  }
+
+  void _resumePlayback() {
+    // status back on play
+    setState(() {
+      _playbackState = PlaybackState.playing;
+    });
+
+    // execute next command
+    _executeNextCommand();
+  }
+
+  void _stopPlayback() {
+    // Back to the beginning
+    setState(() {
+      _playbackState = PlaybackState.idle;
+      _currentCommandIndex = 0;
+    });
+
+    // stop timer
+    _playbackTimer?.cancel();
+
+    // stop car
+    sendCommand('stop');
+  }
+
+  void _executeNextCommand() {
+    // check if state is playing
+    if (_playbackState != PlaybackState.playing) return;
+
+    // check connection
+    if (!ConnectionManager.instance.connected.value) {
+      _pausePlayback();
+      _showMessage('Connection lost.');
+      return;
+    }
+
+    // check whether end is reached
+    if (_currentCommandIndex >= _commands.length) {
+      _stopPlayback();
+      setState(() {
+        _playbackState = PlaybackState.completed;
+      });
+      _showMessage('Route completed.');
+      return;
+    }
+
+    // get current command
+    var cmd = _commands[_currentCommandIndex];
+
+    // send command to car
+    sendCommand(cmd.command);
+
+    // start timer for next command
+    _playbackTimer = Timer(Duration(milliseconds: cmd.duration), () {
+      // if time is up, next command
+      setState(() {
+        _currentCommandIndex++;
+      });
+      _executeNextCommand();
+    });
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  void dispose() {
+    // Clear when closing page
+    _playbackTimer?.cancel();
+    if (_playbackState == PlaybackState.playing) {
+      sendCommand('stop');
+    }
+    super.dispose();
+  }
+
+  // ========== UI KOMPONENTS ==========
+
+  Widget _buildPlaybackControls() {
+    return Container(
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          _buildProgressIndicator(),
+          SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [_buildPlayPauseButton(), _buildStopButton()],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressIndicator() {
+    // Calculate Process
+    double progress = _commands.isEmpty
+        ? 0.0
+        : _currentCommandIndex / _commands.length;
+
+    return Column(
+      children: [
+        // Progress bar
+        LinearProgressIndicator(
+          value: progress,
+          backgroundColor: Colors.grey.shade700,
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+        ),
+        SizedBox(height: 4),
+        // Text with current segment number
+        Text(
+          'Segment ${_currentCommandIndex + 1} / ${_commands.length}',
+          style: TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlayPauseButton() {
+    bool isPlaying = _playbackState == PlaybackState.playing;
+    bool isPaused = _playbackState == PlaybackState.paused;
+    bool canPlay =
+        _points.length > 1 &&
+        (_playbackState == PlaybackState.idle || isPaused);
+
+    return ElevatedButton.icon(
+      // paused → Resume, otherwise → Start or Pause
+      onPressed: canPlay
+          ? (isPaused ? _resumePlayback : _startPlayback)
+          : (isPlaying ? _pausePlayback : null),
+      icon: Icon(
+        isPlaying ? Icons.pause : Icons.play_arrow,
+        color: Colors.white,
+      ),
+      label: Text(
+        isPlaying ? 'Pause' : (isPaused ? 'Resume' : 'Play'),
+        style: TextStyle(color: Colors.white),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isPlaying
+            ? Colors.orange.shade700
+            : Colors.green.shade700,
+        minimumSize: Size(120, 50),
+      ),
+    );
+  }
+
+  Widget _buildStopButton() {
+    bool canStop =
+        _playbackState == PlaybackState.playing ||
+        _playbackState == PlaybackState.paused;
+
+    return ElevatedButton.icon(
+      onPressed: canStop ? _stopPlayback : null,
+      icon: Icon(Icons.stop, color: Colors.white),
+      label: Text('Stop', style: TextStyle(color: Colors.white)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.red.shade700,
+        minimumSize: Size(120, 50),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1247,7 +1898,12 @@ class _DrawingPageState extends State<DrawingPage> {
                         },
                         onPanEnd: (_) => _points.add(Offset.zero),
                         child: CustomPaint(
-                          painter: _RoutePainter(_points),
+                          painter: _RoutePlaybackPainter(
+                            points: _points,
+                            segments: _segments,
+                            currentSegmentIndex: _currentCommandIndex,
+                            isPlaying: _playbackState == PlaybackState.playing,
+                          ),
                           child: Container(),
                         ),
                       );
@@ -1257,29 +1913,21 @@ class _DrawingPageState extends State<DrawingPage> {
               ),
 
               Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                child: _buildPlaybackControls(),
+              ),
+
+              SizedBox(height: 8),
+
+              Padding(
                 padding: const EdgeInsets.all(12.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () => setState(() => _points.clear()),
-                      icon: const Icon(Icons.clear),
-                      label: const Text('Clear'),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        // Beispiel: export points length
-                        final count = _points
-                            .where((p) => p != Offset.zero)
-                            .length;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Points: $count')),
-                        );
-                      },
-                      icon: const Icon(Icons.save),
-                      label: const Text('Save'),
-                    ),
-                  ],
+                child: ElevatedButton.icon(
+                  onPressed: () => setState(() {
+                    _points.clear();
+                    _stopPlayback();
+                  }),
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Clear'),
                 ),
               ),
             ],
@@ -1290,23 +1938,51 @@ class _DrawingPageState extends State<DrawingPage> {
   }
 }
 
-class _RoutePainter extends CustomPainter {
+class _RoutePlaybackPainter extends CustomPainter {
   final List<Offset> points;
-  _RoutePainter(this.points);
+  final List<RouteSegment> segments;
+  final int currentSegmentIndex;
+  final bool isPlaying;
+
+  _RoutePlaybackPainter({
+    required this.points,
+    required this.segments,
+    required this.currentSegmentIndex,
+    required this.isPlaying,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paintLine = Paint()
+    // draw complete route
+    _drawCompletePath(canvas);
+
+    // when playback active
+    if (isPlaying && segments.isNotEmpty) {
+      // already driven segments
+      _drawCompletedSegments(canvas);
+
+      // current segment
+      if (currentSegmentIndex < segments.length) {
+        _drawCurrentSegment(canvas);
+        _drawCarPosition(canvas);
+      }
+    }
+
+    // draw points
+    _drawPoints(canvas);
+  }
+
+  void _drawCompletePath(Canvas canvas) {
+    final paint = Paint()
       ..color = const Color.fromARGB(255, 44, 27, 27)
       ..strokeWidth = 4.0
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
-    final paintDot = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
+
     final path = Path();
     bool started = false;
-    for (final p in points) {
+
+    for (var p in points) {
       if (p == Offset.zero) {
         started = false;
         continue;
@@ -1318,7 +1994,64 @@ class _RoutePainter extends CustomPainter {
         path.lineTo(p.dx, p.dy);
       }
     }
-    canvas.drawPath(path, paintLine);
+
+    canvas.drawPath(path, paint);
+  }
+
+  void _drawCompletedSegments(Canvas canvas) {
+    final paint = Paint()
+      ..color = Colors.green.shade400
+      ..strokeWidth = 5.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    // draw segment to current
+    for (int i = 0; i < currentSegmentIndex && i < segments.length; i++) {
+      var seg = segments[i];
+      canvas.drawLine(seg.start, seg.end, paint);
+    }
+  }
+
+  void _drawCurrentSegment(Canvas canvas) {
+    var seg = segments[currentSegmentIndex];
+
+    final paint = Paint()
+      ..color = Colors.yellow.shade600
+      ..strokeWidth = 6.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(seg.start, seg.end, paint);
+  }
+
+  void _drawCarPosition(Canvas canvas) {
+    var seg = segments[currentSegmentIndex];
+
+    // car as red dot
+    final paint = Paint()
+      ..color = Colors.red.shade700
+      ..style = PaintingStyle.fill;
+
+    canvas.drawCircle(seg.start, 8, paint);
+
+    // direction arrow
+    final arrowPaint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+
+    // calculate arrow direction
+    double angle = seg.angle * pi / 180;
+    Offset arrowEnd = seg.start + Offset(cos(angle) * 15, sin(angle) * 15);
+
+    canvas.drawLine(seg.start, arrowEnd, arrowPaint);
+  }
+
+  void _drawPoints(Canvas canvas) {
+    final paintDot = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
     for (final p in points) {
       if (p == Offset.zero) continue;
       canvas.drawCircle(p, 2.5, paintDot);
@@ -1326,7 +2059,12 @@ class _RoutePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _RoutePainter oldDelegate) => true;
+  bool shouldRepaint(covariant _RoutePlaybackPainter oldDelegate) {
+    // draw new
+    return oldDelegate.currentSegmentIndex != currentSegmentIndex ||
+        oldDelegate.isPlaying != isPlaying ||
+        oldDelegate.points.length != points.length;
+  }
 }
 
 /* ---------------- AutonomousDrivingPage ---------------- */
