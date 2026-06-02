@@ -2134,10 +2134,10 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
       ),
     );
     if (!mounted) return;
+    setState(() => _sensorCheckDone = true);
     if (result == true) {
       ConnectionManager.instance.send('sensorOn');
     }
-    setState(() => _sensorCheckDone = true);
     
   }
 
