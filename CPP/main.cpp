@@ -33,7 +33,7 @@ bool turnBool = 1; // for autonomous turning
 int driveTime = 10;
 
 //Check if Sensor is on, has to be clicked in Flutter with Popup
-bool sensorMode = 1;
+bool sensorMode = 0;
 
 #define DEBUGGING true
 
