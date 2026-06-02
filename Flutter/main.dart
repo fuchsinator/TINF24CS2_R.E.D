@@ -2134,10 +2134,11 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
       ),
     );
     if (!mounted) return;
-    setState(() => _sensorCheckDone = true);
     if (result == true) {
       ConnectionManager.instance.send('sensorOn');
     }
+    setState(() => _sensorCheckDone = true);
+    
   }
 
   void _startAutonomous() {
@@ -2172,7 +2173,7 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   void _emergencyStop() {
     setState(() => isRunning = false);
     // Send emergency stop
-    ConnectionManager.instance.send('emergency_stop');
+    ConnectionManager.instance.send('autoStop');
     sendCommand('stop');
 
     ScaffoldMessenger.of(context).showSnackBar(
