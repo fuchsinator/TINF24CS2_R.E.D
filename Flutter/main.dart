@@ -343,11 +343,7 @@ class CommandGenerator {
       switch (seg.type) {
         case SegmentType.straight:
           commands.add(
-            RouteCommand(
-              command: "forward",
-              duration: duration,
-              segmentIndex: i,
-            ),
+            RouteCommand(command: "forward", duration: duration, segmentIndex: i),
           );
           break;
 
@@ -356,35 +352,15 @@ class CommandGenerator {
           final turnCmd = seg.type == SegmentType.leftCurve ? "left" : "right";
           final turnDuration = (duration * 0.9).round();
           final driveDuration = duration - turnDuration;
-          commands.add(
-            RouteCommand(
-              command: turnCmd,
-              duration: turnDuration,
-              segmentIndex: i,
-            ),
-          );
-          commands.add(
-            RouteCommand(
-              command: "forward",
-              duration: driveDuration,
-              segmentIndex: i,
-            ),
-          );
+          commands.add(RouteCommand(command: turnCmd, duration: turnDuration, segmentIndex: i));
+          commands.add(RouteCommand(command: "forward", duration: driveDuration, segmentIndex: i));
           break;
 
         case SegmentType.sharpLeft:
         case SegmentType.sharpRight:
-          final sharpTurnCmd = seg.type == SegmentType.sharpLeft
-              ? "left"
-              : "right";
+          final sharpTurnCmd = seg.type == SegmentType.sharpLeft ? "left" : "right";
           final sharpTurnDuration = (duration * 5.0).round();
-          commands.add(
-            RouteCommand(
-              command: sharpTurnCmd,
-              duration: sharpTurnDuration,
-              segmentIndex: i,
-            ),
-          );
+          commands.add(RouteCommand(command: sharpTurnCmd, duration: sharpTurnDuration, segmentIndex: i));
           break;
       }
     }
@@ -394,9 +370,7 @@ class CommandGenerator {
 
   // Merge runs of the same curve direction into one segment so that a corner
   // spanning multiple smoothed segments produces exactly one turn command.
-  static List<RouteSegment> _mergeConsecutiveCurves(
-    List<RouteSegment> segments,
-  ) {
+  static List<RouteSegment> _mergeConsecutiveCurves(List<RouteSegment> segments) {
     if (segments.isEmpty) return segments;
 
     final result = <RouteSegment>[];
@@ -437,6 +411,10 @@ class ConnectionManager {
   static final ConnectionManager instance = ConnectionManager._internal();
 
   final ValueNotifier<bool> connected = ValueNotifier<bool>(false);
+
+  // Broadcast stream so multiple pages can listen to incoming WS messages.
+  final StreamController<String> _incoming = StreamController<String>.broadcast();
+  Stream<String> get messages => _incoming.stream;
 
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
@@ -483,6 +461,7 @@ class ConnectionManager {
         (message) {
           // ignore: avoid_print
           print('WS recv: $message');
+          _incoming.add(message.toString());
         },
         onDone: () {
           connected.value = false;
@@ -515,6 +494,7 @@ class ConnectionManager {
         (message) {
           // ignore: avoid_print
           print('WS recv: $message');
+          _incoming.add(message.toString());
         },
         onDone: () {
           connected.value = false;
@@ -567,6 +547,7 @@ class ConnectionManager {
     _reconnectTimer?.cancel();
     _sendThrottleTimer?.cancel();
     _keepAliveTimer?.cancel();
+    _incoming.close();
     connected.dispose();
   }
 
@@ -1837,6 +1818,7 @@ class _DrawingPageState extends State<DrawingPage> {
     );
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2077,8 +2059,14 @@ class AutonomousDrivingPage extends StatefulWidget {
 
 class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   bool isRunning = false;
-  double maxSpeed = 15.0;
   bool _sensorCheckDone = false;
+
+  // Sensor state machine
+  bool _isReversing = false;
+  int _lastDistanceMm = -1;
+  double _thresholdMm = 300; // obstacle detection distance in mm
+  StreamSubscription<String>? _sensorSubscription;
+  Timer? _reverseTimer;
 
   @override
   void initState() {
@@ -2093,6 +2081,8 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
 
   @override
   void dispose() {
+    _sensorSubscription?.cancel();
+    _reverseTimer?.cancel();
     ConnectionManager.instance.connected.removeListener(_onConnectionChanged);
     if (isRunning) _stopAutonomous();
     super.dispose();
@@ -2142,8 +2132,18 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
 
   void _startAutonomous() {
     if (!_sensorCheckDone) return;
-    setState(() => isRunning = true);
-    ConnectionManager.instance.send('auto');
+
+    _sensorSubscription?.cancel();
+    _sensorSubscription = ConnectionManager.instance.messages.listen(_onSensorData);
+
+    setState(() {
+      isRunning = true;
+      _isReversing = false;
+      _lastDistanceMm = -1;
+    });
+
+    // Drive forward — Flutter controls direction based on sensor feedback
+    ConnectionManager.instance.send('forward');
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -2155,9 +2155,15 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   }
 
   void _stopAutonomous() {
-    setState(() => isRunning = false);
-    // Send stop command
-    ConnectionManager.instance.send('autoStop');
+    _sensorSubscription?.cancel();
+    _sensorSubscription = null;
+    _reverseTimer?.cancel();
+
+    setState(() {
+      isRunning = false;
+      _isReversing = false;
+    });
+
     sendCommand('stop');
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -2170,8 +2176,15 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   }
 
   void _emergencyStop() {
-    setState(() => isRunning = false);
-    // Send emergency stop
+    _sensorSubscription?.cancel();
+    _sensorSubscription = null;
+    _reverseTimer?.cancel();
+
+    setState(() {
+      isRunning = false;
+      _isReversing = false;
+    });
+
     ConnectionManager.instance.send('emergency_stop');
     sendCommand('stop');
 
@@ -2184,9 +2197,42 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
     );
   }
 
-  Color _getDistanceColor(double distance) {
-    if (distance < 20) return Colors.red;
-    if (distance < 40) return Colors.orange;
+  // Called for every incoming WebSocket message while autonomous mode is active.
+  void _onSensorData(String message) {
+    if (!isRunning || !mounted) return;
+
+    final dist = _parseDistance(message);
+    if (dist == null) return;
+
+    setState(() => _lastDistanceMm = dist);
+
+    // Only react when driving forward and obstacle is within threshold
+    if (!_isReversing && dist < _thresholdMm) {
+      setState(() => _isReversing = true);
+      ConnectionManager.instance.send('backward');
+
+      _reverseTimer?.cancel();
+      _reverseTimer = Timer(const Duration(milliseconds: 800), () {
+        if (!mounted || !isRunning) return;
+        setState(() => _isReversing = false);
+        ConnectionManager.instance.send('forward');
+      });
+    }
+  }
+
+  // Parses distance from ESP message.
+  // Supported formats: "150", "dist:150", "d:150"
+  int? _parseDistance(String msg) {
+    final s = msg.trim();
+    if (s.startsWith('dist:')) return int.tryParse(s.substring(5));
+    if (s.startsWith('d:')) return int.tryParse(s.substring(2));
+    return int.tryParse(s);
+  }
+
+  Color _getDistanceColor(int mm) {
+    if (mm < 0) return Colors.grey;
+    if (mm < _thresholdMm * 0.5) return Colors.red;
+    if (mm < _thresholdMm) return Colors.orange;
     return Colors.green;
   }
 
@@ -2214,7 +2260,7 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
                 children: [
                   const SizedBox(height: 20),
 
-                  // Sensor Visualization
+                  // Sensor card
                   Card(
                     color: Colors.black26,
                     child: Padding(
@@ -2222,22 +2268,70 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
                       child: Column(
                         children: [
                           const Text(
-                            'Sensor Readings',
+                            'VL53L0X — Frontdistanz',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+                          const SizedBox(height: 16),
+
+                          // Distance readout
+                          Text(
+                            _lastDistanceMm < 0
+                                ? '— mm'
+                                : '$_lastDistanceMm mm',
+                            style: TextStyle(
+                              fontSize: 42,
+                              fontWeight: FontWeight.bold,
+                              color: _getDistanceColor(_lastDistanceMm),
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // Status label
+                          Text(
+                            isRunning
+                                ? (_isReversing ? '⬅ Zurückfahren' : '➡ Vorwärts')
+                                : 'Gestoppt',
+                            style: TextStyle(
+                              color: _isReversing
+                                  ? Colors.orange
+                                  : Colors.white70,
+                              fontSize: 16,
+                            ),
+                          ),
+
                           const SizedBox(height: 20),
 
-                          // Sensor visualization layout
+                          // Threshold slider
+                          Text(
+                            'Erkennungsdistanz: ${_thresholdMm.toInt()} mm',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                          Slider(
+                            value: _thresholdMm,
+                            min: 50,
+                            max: 800,
+                            divisions: 15,
+                            label: '${_thresholdMm.toInt()} mm',
+                            onChanged: isRunning
+                                ? null
+                                : (v) => setState(() => _thresholdMm = v),
+                            activeColor: Colors.redAccent,
+                            inactiveColor: Colors.white24,
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // Car icon
                           SizedBox(
-                            height: 250,
+                            height: 80,
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
-                                // Car icon in center
                                 Container(
                                   width: 80,
                                   height: 80,

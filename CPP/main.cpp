@@ -27,7 +27,16 @@ int currentTurn = 0;      // 0 = straight, 1 = left, 2 = right
 
 // autonomous mode state
 bool currentMode = 0; // 0 = manual, 1 = autonomous
-bool turnBool = 1; // for autonomous turning
+
+// autonomous drive state machine
+bool autoReversing = false;
+unsigned long reverseStartMs = 0;
+const unsigned long REVERSE_MS   = 800;  // how long to drive backward (ms)
+const int           OBSTACLE_MM  = 250;  // trigger distance in mm
+
+// throttle distance broadcasts so WebSocket isn't flooded
+unsigned long lastDistSendMs = 0;
+const unsigned long DIST_SEND_INTERVAL = 100; // ms between distance messages
 
 //time the motors will drive in ms per command (default 10)
 int driveTime = 10;
@@ -45,7 +54,7 @@ void handleWSEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len) {
     if(msg.indexOf("right")>=0) currentTurn=2;
     if(msg.indexOf("stop")>=0){ currentDirection=0; currentTurn=0;}
     if(msg.indexOf("auto")>=0) currentMode=1;
-    if(msg.indexOf("autoStop")>=0) currentMode=0;
+    if(msg.indexOf("autoStop")>=0){ currentMode=0; autoReversing=false; }
     ws.sendTXT(num, "ACK");           // optional ack
   }
 }
@@ -129,18 +138,36 @@ int get_distance() {
   return dist;
 }
 
-int set_autoDrive(int dist) {
-  //When car 20cm away from obsticle cars drives backwards and turns 
-  if (dist < 250 && dist > 50){
-    Serial.println("Backwards");
-    turnBool = !turnBool;
-    drive(2, 0);
-    delay(100);
-  }else{
-    Serial.println("Forwards");
-    drive(1,0);
+void set_autoDrive(int dist) {
+  unsigned long now = millis();
+
+  // Send distance to Flutter app (throttled to avoid flooding WebSocket)
+  if (now - lastDistSendMs >= DIST_SEND_INTERVAL) {
+    ws.broadcastTXT(String(dist));
+    lastDistSendMs = now;
   }
-  return 0;
+
+  if (autoReversing) {
+    if (now - reverseStartMs >= REVERSE_MS) {
+      // Reverse phase done → go forward again
+      autoReversing = false;
+      if (DEBUGGING) Serial.println("Auto: reverse done, driving forward");
+    } else {
+      drive(2, 0); // continue reversing
+      return;
+    }
+  }
+
+  // Drive forward until obstacle is detected
+  if (dist > 0 && dist < OBSTACLE_MM) {
+    autoReversing = true;
+    reverseStartMs = now;
+    drive(2, 0);
+    if (DEBUGGING) Serial.println("Auto: obstacle detected, reversing");
+  } else {
+    drive(1, 0);
+    if (DEBUGGING) Serial.println("Auto: forward");
+  }
 }
 
 void setup() {
@@ -170,14 +197,11 @@ void setup() {
 
 void loop() {
   ws.loop();
-  if (currentMode){
-    currentDirection = 1;
-    currentTurn = 0;
+  if (currentMode) {
     int dist = get_distance();
     set_autoDrive(dist);
-    Serial.println(dist);
     yield();
-  }else{
-    drive(currentDirection,currentTurn);
+  } else {
+    drive(currentDirection, currentTurn);
   }
 }
