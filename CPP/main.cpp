@@ -143,7 +143,8 @@ void set_autoDrive(int dist) {
 
   // Send distance to Flutter app (throttled to avoid flooding WebSocket)
   if (now - lastDistSendMs >= DIST_SEND_INTERVAL) {
-    ws.broadcastTXT(String(dist));
+    String distMsg = String(dist);
+    ws.broadcastTXT(distMsg);
     lastDistSendMs = now;
   }
 
