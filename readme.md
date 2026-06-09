@@ -12,8 +12,7 @@ Prebuilt apps are included for Windows, Android, and Linux.
 
 ## Files
 
-- Windows: download `red.exe`
-- Android: download `red.apk`
+- Android: download zip folder `red.zip`
 - Linux: download the entire folder `linux/`
 
 ---
@@ -35,14 +34,6 @@ chmod +x executable
 ### Install via device
 - Copy `red.apk` to your phone
 - Open and install (enable unknown sources if needed)
-
-## Windows
-
-Double-click:
-
-```text
-red.exe
-```
 
 ## Firmware
 
