@@ -137,16 +137,44 @@ int get_distance() {
 }
 
 int set_autoDrive(int dist) {
-  //When car 20cm away from obsticle cars drives backwards and turns 
-  if (dist < 250 && dist > 50){
-    Serial.println("Backwards");
-    turnBool = !turnBool;
+  //When car detects obstacle: drive backwards, turn, then continue
+  
+  if (dist < 100 && dist > 50) {
+    // EMERGENCY: Very close (5-10cm) - strong avoidance
+    Serial.println("EMERGENCY - Too close! Strong avoidance");
+    
+    // 1. Drive backwards
     drive(2, 0);
-    delay(100);
-  }else{
-    Serial.println("Forwards");
-    drive(1,0);
+    delay(500);  // Longer reverse to create distance
+    
+    // 2. Turn (alternating left/right using turnBool)
+    drive(0, turnBool ? 1 : 2);  // 1 = left, 2 = right
+    delay(600);  // Time to turn significantly
+    
+    // 3. Toggle direction for next obstacle
+    turnBool = !turnBool;
+    
+  } else if (dist < 250 && dist >= 100) {
+    // WARNING: Medium distance (10-25cm) - normal avoidance
+    Serial.println("Warning - Obstacle ahead, avoiding");
+    
+    // 1. Drive backwards
+    drive(2, 0);
+    delay(300);  // Medium reverse
+    
+    // 2. Turn (alternating left/right using turnBool)
+    drive(0, turnBool ? 1 : 2);  // 1 = left, 2 = right
+    delay(400);  // Time to turn
+    
+    // 3. Toggle direction for next obstacle
+    turnBool = !turnBool;
+    
+  } else {
+    // CLEAR: No obstacle (> 25cm) - drive forward
+    Serial.println("Clear - Moving forward");
+    drive(1, 0);
   }
+  
   return 0;
 }
 

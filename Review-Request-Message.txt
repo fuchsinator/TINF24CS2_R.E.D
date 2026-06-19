@@ -1,0 +1,34 @@
+Hey Sebastian! 👋
+
+Ich hab gerade den autonomen Fahrmodus überarbeitet und bräuchte mal deine Meinung dazu, ob das theoretisch so funktionieren kann. Wir können's ja leider nicht live testen, aber vielleicht siehst du ja ob die Logik Sinn macht? 🤔
+
+**Das Problem war:**
+Der Code hat Hindernisse erkannt und ist rückwärts gefahren, aber hat NIE gelenkt. Dadurch ist das Auto direkt wieder ins gleiche Hindernis gefahren. 🔄
+
+**Was ich geändert hab:**
+✅ Lenkbefehle hinzugefügt: `drive(0, turnBool ? 1 : 2)`
+✅ turnBool wird jetzt verwendet (abwechselnd links/rechts)
+✅ Längere Zeiten: 300-500ms rückwärts, 400-600ms lenken
+✅ Zwei Stufen: Notfall (<10cm) und Warnung (10-25cm)
+
+**Meine Unsicherheiten:**
+- Sind 300-600ms ausreichend zum Lenken? (Hab keine Ahnung wie schnell die Motoren sind)
+- Sind die Distanzen sinnvoll? (100mm = 10cm, 250mm = 25cm)
+- Könnte das Auto in Ecken stecken bleiben?
+- Reicht die einfache Logik oder brauchen wir was komplexeres?
+
+**Wo du's findest:**
+- Code: `CPP/main.cpp`, Funktion `set_autoDrive()`
+- Doku: `Dokumentation/Autonomous-Driving-Fix.md` (da hab ich alles detailliert aufgeschrieben)
+
+Ich bin mir ehrlich gesagt nicht 100% sicher ob das so funktioniert, weil ich's nicht testen kann. Wäre super wenn du mal drüberschauen könntest und mir sagst ob du Probleme siehst oder ob das theoretisch Sinn macht! 🙏
+
+Die Logik ist jetzt:
+1. Hindernis erkannt → Rückwärts fahren
+2. Lenken (links oder rechts, abwechselnd)
+3. Weiterfahren
+
+Sollte theoretisch funktionieren, oder? 🤷‍♀️
+
+Danke dir!
+Alexa
