@@ -36,14 +36,14 @@ Test ob der ConnectionStatus-Button den korrekten Verbindungsstatus anzeigt.
 - Status ändert sich sofort bei Verbindungsaufbau
 
 ### Tatsächliches Ergebnis (vor Fix)
-❌ **FEHLGESCHLAGEN**
+*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
 - Button zeigte **grün** obwohl keine Verbindung bestand
 - `connected.value = true` wurde gesetzt ohne echten Handshake
 - Blind `await Future.delayed(100ms)` wartete nur Zeit ab
 - Befehle konnten nicht gesendet werden trotz grünem Status
 
 ### Tatsächliches Ergebnis (nach Fix)
-✅ **BESTANDEN**
+*BESTANDEN* **BESTANDEN**
 - Button zeigt korrekt rot/grau ohne Verbindung
 - Button zeigt grün nur nach erfolgreichem WebSocket-Handshake
 - `await _channel!.ready` wartet auf echte Verbindung
@@ -54,8 +54,8 @@ Test ob der ConnectionStatus-Button den korrekten Verbindungsstatus anzeigt.
 // Bug: Blind delay, kein echter Handshake-Check
 Future<void> _connect() async {
   _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-  await Future.delayed(Duration(milliseconds: 100)); // ← Blind!
-  connected.value = true; // ← Wird immer gesetzt
+  await Future.delayed(Duration(milliseconds: 100)); // *NEU* Blind!
+  connected.value = true; // *NEU* Wird immer gesetzt
 }
 ```
 
@@ -64,9 +64,9 @@ Future<void> _connect() async {
 // Fix: Warten auf echten WebSocket-Handshake
 Future<void> _connect() async {
   _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-  await _channel!.ready; // ← Wartet auf Handshake
+  await _channel!.ready; // *NEU* Wartet auf Handshake
   
-  connected.value = true; // ← Nur bei Erfolg
+  connected.value = true; // *NEU* Nur bei Erfolg
   _reconnectSeconds = 1;
   _startKeepAlive();
   // ...
@@ -74,10 +74,10 @@ Future<void> _connect() async {
 ```
 
 ### Verifikation
-- ✅ Status korrekt bei Offline
-- ✅ Status korrekt bei Online
-- ✅ Keine False-Positives mehr
-- ✅ Befehle nur bei echter Verbindung
+- *BESTANDEN* Status korrekt bei Offline
+- *BESTANDEN* Status korrekt bei Online
+- *BESTANDEN* Keine False-Positives mehr
+- *BESTANDEN* Befehle nur bei echter Verbindung
 
 ---
 
@@ -110,15 +110,15 @@ Test der Verbindungsstabilität über längere Zeit.
 - Keine automatischen Disconnects
 
 ### Tatsächliches Ergebnis (vor Fix)
-❌ **FEHLGESCHLAGEN**
+*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
 - Verbindung wechselte alle paar Sekunden auf **Offline**
-- Status: Grün → Rot → Grün → Rot (zyklisch)
+- Status: Grün *DANN* Rot *DANN* Grün *DANN* Rot (zyklisch)
 - ESP32 trennte idle Verbindungen automatisch
 - Befehle gingen verloren
 - Ständige Reconnect-Versuche
 
 ### Tatsächliches Ergebnis (nach Fix)
-✅ **BESTANDEN**
+*BESTANDEN* **BESTANDEN**
 - Verbindung bleibt stabil über 5+ Minuten
 - Status bleibt konstant **grün**
 - Keepalive-Ping alle 5 Sekunden verhindert Timeout
@@ -137,7 +137,7 @@ void _startKeepAlive() {
   _keepAliveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
     if (_channel != null && connected.value) {
       try {
-        _channel!.sink.add('ping'); // ← Keepalive-Signal
+        _channel!.sink.add('ping'); // *NEU* Keepalive-Signal
       } catch (e) {
         print('Keepalive failed: $e');
       }
@@ -153,15 +153,15 @@ void _stopKeepAlive() {
 // In _connect():
 await _channel!.ready;
 connected.value = true;
-_startKeepAlive(); // ← Keepalive starten
+_startKeepAlive(); // *NEU* Keepalive starten
 ```
 
 ### Verifikation
-- ✅ Verbindung stabil über 5+ Minuten
-- ✅ Ping alle 5 Sekunden gesendet
-- ✅ ESP32 trennt nicht mehr
-- ✅ Timer wird bei Disconnect gestoppt
-- ✅ Keine Ressourcen-Leaks
+- *BESTANDEN* Verbindung stabil über 5+ Minuten
+- *BESTANDEN* Ping alle 5 Sekunden gesendet
+- *BESTANDEN* ESP32 trennt nicht mehr
+- *BESTANDEN* Timer wird bei Disconnect gestoppt
+- *BESTANDEN* Keine Ressourcen-Leaks
 
 ### Metriken
 
@@ -204,7 +204,7 @@ Test der Geschwindigkeitsanzeige bei Tastatur-Steuerung (WASD).
 - HUD zeigt korrekte Geschwindigkeit in Echtzeit
 
 ### Tatsächliches Ergebnis (vor Fix)
-❌ **FEHLGESCHLAGEN**
+*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
 - Geschwindigkeitsanzeige aktualisierte sich **nur** bei On-Screen-Buttons
 - Bei WASD-Eingabe: HUD zeigte **0 km/h** trotz Fahrt
 - Auto fuhr (WebSocket-Befehle wurden gesendet)
@@ -212,7 +212,7 @@ Test der Geschwindigkeitsanzeige bei Tastatur-Steuerung (WASD).
 - Physikschleife `_updatePhysics()` hatte keine Daten
 
 ### Tatsächliches Ergebnis (nach Fix)
-✅ **BESTANDEN**
+*BESTANDEN* **BESTANDEN**
 - Geschwindigkeitsanzeige aktualisiert sich bei WASD
 - Geschwindigkeitsanzeige aktualisiert sich bei Buttons
 - Identisches Verhalten für beide Eingabemethoden
@@ -227,11 +227,11 @@ void handleKey(RawKeyEvent event) {
   if (key == LogicalKeyboardKey.arrowUp) {
     isDown ? activeCommands.add('forward') : activeCommands.remove('forward');
   }
-  updateCommand(); // ← Sendet WebSocket-Befehl
+  updateCommand(); // *NEU* Sendet WebSocket-Befehl
   
   // ABER: Setzt nie accelerating, braking, steerLeft, steerRight
-  // → _updatePhysics() hat keine Daten
-  // → HUD zeigt 0 km/h
+  // *DANN* _updatePhysics() hat keine Daten
+  // *DANN* HUD zeigt 0 km/h
 }
 ```
 
@@ -267,7 +267,7 @@ void _handleDrivingKey(RawKeyEvent event) {
 // Eingehängt als onKey-Handler
 RawKeyboardListener(
   focusNode: _focusNode,
-  onKey: _handleDrivingKey, // ← Neue Methode
+  onKey: _handleDrivingKey, // *NEU* Neue Methode
   child: ...
 )
 ```
@@ -281,11 +281,11 @@ RawKeyboardListener(
 - HUD zeigt korrekte Geschwindigkeit
 
 ### Verifikation
-- ✅ WASD aktualisiert HUD
-- ✅ Buttons aktualisieren HUD
-- ✅ Identisches Verhalten
-- ✅ Physikschleife funktioniert
-- ✅ Geschwindigkeit korrekt angezeigt
+- *BESTANDEN* WASD aktualisiert HUD
+- *BESTANDEN* Buttons aktualisieren HUD
+- *BESTANDEN* Identisches Verhalten
+- *BESTANDEN* Physikschleife funktioniert
+- *BESTANDEN* Geschwindigkeit korrekt angezeigt
 
 ---
 
@@ -306,7 +306,7 @@ Test des Sensor-Prüfungs-Dialogs beim Verbindungsaufbau.
 ### Testschritte
 1. Autonomous Driving Page öffnen (Status: Offline)
 2. Auto einschalten
-3. Verbindung herstellen (Status: Offline → Online)
+3. Verbindung herstellen (Status: Offline *DANN* Online)
 4. Dialog beobachten
 5. "Ja" auswählen
 6. START AUTONOMOUS MODE Button prüfen (sollte aktiviert sein)
@@ -317,20 +317,20 @@ Test des Sensor-Prüfungs-Dialogs beim Verbindungsaufbau.
 ### Erwartetes Ergebnis
 - Dialog erscheint **nur** auf Autonomous Driving Page
 - Dialog erscheint bei **jedem** Verbindungsaufbau
-- "Ja" → sendet `sensorOn` an ESP32
-- "Nein" → kein Befehl
+- "Ja" *DANN* sendet `sensorOn` an ESP32
+- "Nein" *DANN* kein Befehl
 - START-Button deaktiviert bis Dialog beantwortet
 - Bei Disconnect wird Dialog-Status zurückgesetzt
 
 ### Tatsächliches Ergebnis (vor Fix)
-❌ **NICHT IMPLEMENTIERT**
+*FEHLGESCHLAGEN* **NICHT IMPLEMENTIERT**
 - Kein Sensor-Dialog vorhanden
 - Sensor wurde nie aktiviert
 - Autonomes Fahren funktionierte nicht
 - Keine Möglichkeit `sensorOn` zu senden
 
 ### Tatsächliches Ergebnis (nach Fix)
-✅ **BESTANDEN**
+*BESTANDEN* **BESTANDEN**
 - Dialog erscheint bei Verbindungsaufbau
 - Nur auf Autonomous Driving Page
 - "Ja" sendet `sensorOn` erfolgreich
@@ -361,14 +361,14 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
     if (!mounted) return;
     
     if (ConnectionManager.instance.connected.value) {
-      // Verbindung hergestellt → Dialog zeigen
+      // Verbindung hergestellt *DANN* Dialog zeigen
       if (!_sensorCheckDone) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _showSensorPopup();
         });
       }
     } else {
-      // Verbindung verloren → Status zurücksetzen
+      // Verbindung verloren *DANN* Status zurücksetzen
       setState(() {
         _sensorCheckDone = false;
         isRunning = false;
@@ -405,7 +405,7 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
   }
 
   void _startAutonomous() {
-    if (!_sensorCheckDone) return; // ← Guard
+    if (!_sensorCheckDone) return; // *NEU* Guard
     setState(() => isRunning = true);
     ConnectionManager.instance.send('auto');
     // ...
@@ -414,13 +414,13 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
 ```
 
 ### Verifikation
-- ✅ Dialog erscheint bei Connect
-- ✅ Nur auf Autonomous Page
-- ✅ "Ja" sendet `sensorOn`
-- ✅ "Nein" sendet nichts
-- ✅ START-Button Guard funktioniert
-- ✅ Status-Reset bei Disconnect
-- ✅ Dialog erscheint erneut bei Reconnect
+- *BESTANDEN* Dialog erscheint bei Connect
+- *BESTANDEN* Nur auf Autonomous Page
+- *BESTANDEN* "Ja" sendet `sensorOn`
+- *BESTANDEN* "Nein" sendet nichts
+- *BESTANDEN* START-Button Guard funktioniert
+- *BESTANDEN* Status-Reset bei Disconnect
+- *BESTANDEN* Dialog erscheint erneut bei Reconnect
 
 ### User Flow
 
@@ -431,7 +431,7 @@ class _AutonomousDrivingPageState extends State<AutonomousDrivingPage> {
    ↓
 3. Auto einschalten
    ↓
-4. Verbindung hergestellt (Offline → Online)
+4. Verbindung hergestellt (Offline *DANN* Online)
    ↓
 5. Dialog erscheint: "Ist ein Sensor im Auto verbaut?"
    ↓
@@ -478,7 +478,7 @@ Verifikation dass Token-Bucket-Throttling entfernt wurde und Befehle wieder dire
 - Responsive Steuerung
 
 ### Tatsächliches Ergebnis (mit Token-Bucket)
-❌ **FEHLGESCHLAGEN**
+*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
 - Befehle wurden verzögert (Token-Bucket-Limit)
 - Ruckelige Fahrt
 - Stop-Befehle verzögert (bis zu 200ms)
@@ -486,7 +486,7 @@ Verifikation dass Token-Bucket-Throttling entfernt wurde und Befehle wieder dire
 - Schlechte User Experience
 
 ### Tatsächliches Ergebnis (nach Entfernung)
-✅ **BESTANDEN**
+*BESTANDEN* **BESTANDEN**
 - Befehle werden sofort gesendet
 - Flüssige, responsive Fahrt
 - Stop-Befehle ohne Verzögerung
@@ -506,7 +506,7 @@ Verifikation dass Token-Bucket-Throttling entfernt wurde und Befehle wieder dire
 // Vorher: Token-Bucket-Throttling
 void send(String cmd) {
   if (_tokens <= 0) {
-    _pendingCommand = cmd; // ← Verzögert
+    _pendingCommand = cmd; // *NEU* Verzögert
     return;
   }
   _tokens--;
@@ -517,7 +517,7 @@ void send(String cmd) {
 void send(String cmd) {
   if (_channel != null && connected.value) {
     try {
-      _channel!.sink.add(cmd); // ← Sofort
+      _channel!.sink.add(cmd); // *NEU* Sofort
     } catch (e) {
       print('Send failed: $e');
     }
@@ -526,11 +526,11 @@ void send(String cmd) {
 ```
 
 ### Verifikation
-- ✅ Kein Token-Bucket mehr
-- ✅ Befehle sofort gesendet
-- ✅ Keine künstlichen Delays
-- ✅ Flüssige Steuerung
-- ✅ Stop-Befehle sofort
+- *BESTANDEN* Kein Token-Bucket mehr
+- *BESTANDEN* Befehle sofort gesendet
+- *BESTANDEN* Keine künstlichen Delays
+- *BESTANDEN* Flüssige Steuerung
+- *BESTANDEN* Stop-Befehle sofort
 
 ---
 
@@ -543,12 +543,12 @@ void send(String cmd) {
 - **Mittel:** 2
 
 ### Ergebnisse (vor Fixes)
-- ❌ **Fehlgeschlagen:** 4
-- ⚠️ **Nicht implementiert:** 1
+- *FEHLGESCHLAGEN* **Fehlgeschlagen:** 4
+- *WARNUNG* **Nicht implementiert:** 1
 
 ### Ergebnisse (nach Fixes)
-- ✅ **Bestanden:** 5
-- ❌ **Fehlgeschlagen:** 0
+- *BESTANDEN* **Bestanden:** 5
+- *FEHLGESCHLAGEN* **Fehlgeschlagen:** 0
 
 ### Kategorien
 - **Funktional:** 3 Tests
@@ -583,4 +583,4 @@ void send(String cmd) {
 
 **Dokumentiert von:** Alexa van der Meulen  
 **Review:** Team R.E.D.  
-**Status:** Alle Tests bestanden ✅
+**Status:** Alle Tests bestanden *BESTANDEN*

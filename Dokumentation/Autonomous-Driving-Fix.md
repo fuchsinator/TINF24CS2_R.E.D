@@ -1,15 +1,15 @@
 # Autonomous Driving - Obstacle Avoidance Fix
 
-## 📋 Änderungsdokumentation
+## *DOKU* Änderungsdokumentation
 **Datum:** 19.06.2026  
 **Autor:** Alexa van der Meulen  
 **Datei:** `CPP/main.cpp`  
 **Funktion:** `set_autoDrive(int dist)`  
-**Status:** ⚠️ REVIEW BENÖTIGT
+**Status:** *WARNUNG* REVIEW BENÖTIGT
 
 ---
 
-## 🐛 Problem-Analyse
+## *BUG* Problem-Analyse
 
 ### Ursprüngliches Problem
 Der autonome Fahrmodus erkannte zwar Hindernisse, **fuhr aber nicht um sie herum**:
@@ -20,8 +20,8 @@ int set_autoDrive(int dist) {
   if (dist < 250 && dist > 50){
     Serial.println("Backwards");
     turnBool = !turnBool;
-    drive(2, 0);        // ← Nur rückwärts, KEIN Lenken!
-    delay(100);         // ← Zu kurz
+    drive(2, 0);        // *NEU* Nur rückwärts, KEIN Lenken!
+    delay(100);         // *NEU* Zu kurz
   } else {
     Serial.println("Forwards");
     drive(1, 0);
@@ -34,11 +34,11 @@ int set_autoDrive(int dist) {
 
 | # | Problem | Impact | Priorität |
 |---|---------|--------|-----------|
-| 1 | **Kein Lenkbefehl** | Auto fährt direkt wieder ins Hindernis | 🔴 KRITISCH |
-| 2 | `turnBool` nicht verwendet | Variable wird gesetzt aber ignoriert | 🔴 KRITISCH |
-| 3 | Zu kurze Rückwärts-Zeit (100ms) | Nicht genug Abstand zum Hindernis | 🟡 HOCH |
-| 4 | Keine Distanz-Differenzierung | Gleiche Reaktion bei 6cm und 24cm | 🟡 MITTEL |
-| 5 | Endlosschleifen-Gefahr | Kann in Ecken stecken bleiben | 🟡 MITTEL |
+| 1 | **Kein Lenkbefehl** | Auto fährt direkt wieder ins Hindernis | *KRITISCH* KRITISCH |
+| 2 | `turnBool` nicht verwendet | Variable wird gesetzt aber ignoriert | *KRITISCH* KRITISCH |
+| 3 | Zu kurze Rückwärts-Zeit (100ms) | Nicht genug Abstand zum Hindernis | *HOCH* HOCH |
+| 4 | Keine Distanz-Differenzierung | Gleiche Reaktion bei 6cm und 24cm | *HOCH* MITTEL |
+| 5 | Endlosschleifen-Gefahr | Kann in Ecken stecken bleiben | *HOCH* MITTEL |
 
 ### Beobachtetes Verhalten
 ```
@@ -46,13 +46,13 @@ int set_autoDrive(int dist) {
 2. Hindernis bei 25cm erkannt
 3. Auto fährt 100ms rückwärts (ohne zu lenken)
 4. Auto fährt wieder vorwärts
-5. ❌ Fährt direkt wieder ins gleiche Hindernis
-6. 🔄 Endlosschleife
+5. *NEIN* Fährt direkt wieder ins gleiche Hindernis
+6. *SCHLEIFE* Endlosschleife
 ```
 
 ---
 
-## ✅ Implementierte Lösung
+## *JA* Implementierte Lösung
 
 ### Neue Logik mit abgestufter Reaktion
 
@@ -102,23 +102,23 @@ int set_autoDrive(int dist) {
 
 ---
 
-## 🔧 Änderungen im Detail
+## *FIX* Änderungen im Detail
 
-### 1. **Lenkbefehle hinzugefügt** ✅
+### 1. **Lenkbefehle hinzugefügt** *JA*
 ```cpp
-drive(0, turnBool ? 1 : 2);  // ← NEU: Lenken nach rückwärts
+drive(0, turnBool ? 1 : 2);  // *NEU* NEU: Lenken nach rückwärts
 ```
 - Parameter 1: `0` = kein Vorwärts/Rückwärts
 - Parameter 2: `1` = links, `2` = rechts
 - `turnBool` wechselt zwischen links/rechts
 
-### 2. **turnBool wird jetzt verwendet** ✅
+### 2. **turnBool wird jetzt verwendet** *JA*
 ```cpp
-drive(0, turnBool ? 1 : 2);  // ← Verwendet turnBool für Richtung
-turnBool = !turnBool;         // ← Wechselt für nächstes Mal
+drive(0, turnBool ? 1 : 2);  // *NEU* Verwendet turnBool für Richtung
+turnBool = !turnBool;         // *NEU* Wechselt für nächstes Mal
 ```
 
-### 3. **Längere Zeiten** ✅
+### 3. **Längere Zeiten** *JA*
 | Aktion | Vorher | Nachher | Grund |
 |--------|--------|---------|-------|
 | Rückwärts (Notfall) | 100ms | 500ms | Mehr Abstand schaffen |
@@ -126,16 +126,16 @@ turnBool = !turnBool;         // ← Wechselt für nächstes Mal
 | Rückwärts (Normal) | 100ms | 300ms | Ausreichend Abstand |
 | Lenken (Normal) | 0ms | 400ms | Zeit zum Drehen |
 
-### 4. **Abgestufte Reaktion** ✅
+### 4. **Abgestufte Reaktion** *JA*
 ```
-Distanz < 10cm  → NOTFALL: 500ms rückwärts + 600ms lenken
-Distanz 10-25cm → WARNUNG: 300ms rückwärts + 400ms lenken
-Distanz > 25cm  → FREI: Vorwärts fahren
+Distanz < 10cm  *DANN* NOTFALL: 500ms rückwärts + 600ms lenken
+Distanz 10-25cm *DANN* WARNUNG: 300ms rückwärts + 400ms lenken
+Distanz > 25cm  *DANN* FREI: Vorwärts fahren
 ```
 
 ---
 
-## 🎯 Erwartetes Verhalten (nach Fix)
+## *ZIEL* Erwartetes Verhalten (nach Fix)
 
 ### Szenario 1: Hindernis bei 8cm (Notfall)
 ```
@@ -144,7 +144,7 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 3. Rückwärts fahren (500ms)
 4. Lenken links (600ms) [beim ersten Mal]
 5. Vorwärts fahren
-6. ✅ Hindernis umfahren
+6. *JA* Hindernis umfahren
 ```
 
 ### Szenario 2: Hindernis bei 20cm (Warnung)
@@ -154,7 +154,7 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 3. Rückwärts fahren (300ms)
 4. Lenken rechts (400ms) [beim zweiten Mal, da turnBool gewechselt]
 5. Vorwärts fahren
-6. ✅ Hindernis umfahren
+6. *JA* Hindernis umfahren
 ```
 
 ### Szenario 3: Freie Fahrt (> 25cm)
@@ -162,12 +162,12 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 1. Sensor misst 50cm
 2. "Clear - Moving forward"
 3. Vorwärts fahren
-4. ✅ Weiterfahren
+4. *JA* Weiterfahren
 ```
 
 ---
 
-## ⚠️ Zu testende Szenarien
+## *WARNUNG* Zu testende Szenarien
 
 ### Test 1: Einzelnes Hindernis
 - [ ] Auto fährt auf Wand zu
@@ -193,7 +193,7 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 
 ---
 
-## 🔍 Code-Review Checkliste
+## *ANALYSE* Code-Review Checkliste
 
 ### Funktionalität
 - [ ] Lenkbefehle korrekt implementiert?
@@ -214,24 +214,24 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 ### Performance
 - [ ] `delay()` Zeiten nicht zu lang? (blockiert Loop)
 - [ ] Sensor-Auslesen schnell genug?
-- [ ] `yield()` im Loop vorhanden? ✅ (Zeile 186)
+- [ ] `yield()` im Loop vorhanden? *JA* (Zeile 186)
 
 ---
 
-## 📊 Vergleich Vorher/Nachher
+## *STATISTIK* Vergleich Vorher/Nachher
 
 | Aspekt | Vorher | Nachher |
 |--------|--------|---------|
-| **Lenken** | ❌ Nein | ✅ Ja (links/rechts abwechselnd) |
-| **turnBool Nutzung** | ❌ Nicht verwendet | ✅ Verwendet für Richtung |
+| **Lenken** | *NEIN* Nein | *JA* Ja (links/rechts abwechselnd) |
+| **turnBool Nutzung** | *NEIN* Nicht verwendet | *JA* Verwendet für Richtung |
 | **Rückwärts-Zeit** | 100ms | 300-500ms (abgestuft) |
 | **Lenk-Zeit** | 0ms | 400-600ms (abgestuft) |
 | **Distanz-Stufen** | 1 (5-25cm) | 2 (5-10cm, 10-25cm) |
-| **Umfahren möglich** | ❌ Nein | ✅ Ja (theoretisch) |
+| **Umfahren möglich** | *NEIN* Nein | *JA* Ja (theoretisch) |
 
 ---
 
-## 🚨 Bekannte Einschränkungen
+## *ALARM* Bekannte Einschränkungen
 
 ### 1. Keine Rückwärts-Sensor
 - Auto kann beim Rückwärtsfahren gegen Hindernisse fahren
@@ -251,26 +251,26 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 
 ---
 
-## 💡 Mögliche Verbesserungen (Future)
+## *IDEE* Mögliche Verbesserungen (Future)
 
 ### Kurzfristig
-1. **Rückwärts-Sensor hinzufügen** → Sicheres Rückwärtsfahren
-2. **Delay-Zeiten kalibrieren** → Optimale Werte durch Tests finden
-3. **Stuck-Detection** → Erkennen wenn Auto stecken bleibt
+1. **Rückwärts-Sensor hinzufügen** *DANN* Sicheres Rückwärtsfahren
+2. **Delay-Zeiten kalibrieren** *DANN* Optimale Werte durch Tests finden
+3. **Stuck-Detection** *DANN* Erkennen wenn Auto stecken bleibt
 
 ### Mittelfristig
-1. **Non-blocking Delays** → `millis()` statt `delay()`
-2. **State Machine** → Saubere Zustandsverwaltung
-3. **Mehrere Sensoren** → 360° Sicht
+1. **Non-blocking Delays** *DANN* `millis()` statt `delay()`
+2. **State Machine** *DANN* Saubere Zustandsverwaltung
+3. **Mehrere Sensoren** *DANN* 360° Sicht
 
 ### Langfristig
-1. **Pfadplanung** → A* oder ähnlicher Algorithmus
-2. **Mapping** → Raum kartieren
-3. **Lernende Algorithmen** → Verhalten optimieren
+1. **Pfadplanung** *DANN* A* oder ähnlicher Algorithmus
+2. **Mapping** *DANN* Raum kartieren
+3. **Lernende Algorithmen** *DANN* Verhalten optimieren
 
 ---
 
-## 📝 Test-Protokoll (auszufüllen)
+## *NOTIZ* Test-Protokoll (auszufüllen)
 
 ### Hardware-Setup
 - [ ] ESP8266 funktioniert
@@ -290,10 +290,10 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 
 | Test | Ergebnis | Notizen |
 |------|----------|---------|
-| Einzelnes Hindernis | ⬜ Pass / ⬜ Fail | |
-| Mehrere Hindernisse | ⬜ Pass / ⬜ Fail | |
-| Enge Ecke | ⬜ Pass / ⬜ Fail | |
-| Notfall vs. Warnung | ⬜ Pass / ⬜ Fail | |
+| Einzelnes Hindernis | *OFFEN* Pass / *OFFEN* Fail | |
+| Mehrere Hindernisse | *OFFEN* Pass / *OFFEN* Fail | |
+| Enge Ecke | *OFFEN* Pass / *OFFEN* Fail | |
+| Notfall vs. Warnung | *OFFEN* Pass / *OFFEN* Fail | |
 
 ### Beobachtungen
 ```
@@ -302,7 +302,7 @@ Distanz > 25cm  → FREI: Vorwärts fahren
 
 ---
 
-## 🤝 Review Request
+## *REVIEW* Review Request
 
 **An:** Team R.E.D. (Sebastian, Jonathan, Vera)  
 **Von:** Alexa  
@@ -315,10 +315,10 @@ ich habe den autonomen Fahrmodus überarbeitet, da das Auto vorher **nicht um Hi
 **Hauptproblem:** Es fehlten die Lenkbefehle - das Auto fuhr nur rückwärts und dann direkt wieder ins gleiche Hindernis.
 
 **Was ich geändert habe:**
-1. ✅ Lenkbefehle hinzugefügt (`drive(0, turnBool ? 1 : 2)`)
-2. ✅ `turnBool` wird jetzt verwendet (abwechselnd links/rechts)
-3. ✅ Längere Zeiten (300-500ms rückwärts, 400-600ms lenken)
-4. ✅ Abgestufte Reaktion (Notfall < 10cm, Warnung 10-25cm)
+1. *JA* Lenkbefehle hinzugefügt (`drive(0, turnBool ? 1 : 2)`)
+2. *JA* `turnBool` wird jetzt verwendet (abwechselnd links/rechts)
+3. *JA* Längere Zeiten (300-500ms rückwärts, 400-600ms lenken)
+4. *JA* Abgestufte Reaktion (Notfall < 10cm, Warnung 10-25cm)
 
 **Bitte prüft:**
 - Sind die Distanz-Schwellwerte sinnvoll? (100mm, 250mm)
@@ -328,12 +328,12 @@ ich habe den autonomen Fahrmodus überarbeitet, da das Auto vorher **nicht um Hi
 
 **Datei:** `CPP/main.cpp`, Funktion `set_autoDrive()`
 
-Wäre super wenn ihr mal drüberschauen könntet, bevor wir es testen! 🚗
+Wäre super wenn ihr mal drüberschauen könntet, bevor wir es testen! *AUTO*
 
 Danke!  
 Alexa
 
 ---
 
-**Status:** ⚠️ WARTET AUF REVIEW  
+**Status:** *WARNUNG* WARTET AUF REVIEW  
 **Nächster Schritt:** Hardware-Test nach Review
