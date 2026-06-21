@@ -34,13 +34,13 @@ Test der Stop-Befehl-Verzögerung beim Loslassen von Steuertasten.
 - Auto stoppt nicht sofort beim Loslassen
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Stop-Befehl wurde nach nur **10ms** gesendet
 - Auto stoppte unmittelbar nach jedem Tastendruck
 - Kontinuierliches Fahren nicht möglich
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Stop-Befehl wird nach 500ms gesendet
 - Guard-Bedingung prüft ob Taste noch gehalten wird
 - Kontinuierliches Fahren funktioniert einwandfrei
@@ -96,14 +96,14 @@ Test ob Stop-Befehle beim Loslassen von UI-Buttons korrekt gesendet werden.
 - Auto stoppt nach Release
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - `activeCommands` wurde aktualisiert
 - `updateCommand()` wurde **nicht** aufgerufen
 - Kein Stop-Befehl ans Auto gesendet
 - Auto fuhr weiter
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - `updateCommand()` wird in allen Release-Pfaden aufgerufen
 - Stop-Befehl wird zuverlässig gesendet
 - Auto stoppt korrekt
@@ -157,7 +157,7 @@ Test dass Watchdog-Timer nur bei Tastatur-Eingaben aktiviert wird, nicht bei Tou
 - Stop-Befehl nach 500ms wenn kein Key mehr gehalten
 
 ### Tatsächliches Ergebnis
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - `_startCommandTimer()` nur in `_handleDrivingKey()` aufgerufen
 - Touch-Buttons verwenden eigene Release-Handler
 - Sicherheitsnetz für Browser KeyUp-Event-Verlust funktioniert
@@ -199,14 +199,14 @@ Test der Button-Reaktion bei langem Halten (Long-Press).
 - Stop-Befehl wird immer gesendet
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - `GestureDetector.onTapUp` wurde bei Long-Press unterdrückt
 - Flutter klassifizierte Geste als Long-Press
 - Button blieb "gedrückt"
 - Stop-Befehl kam nie
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - `Listener.onPointerUp` feuert bedingungslos
 - Unabhängig von Gesten-Klassifizierung
 - Stop-Befehl wird immer gesendet
@@ -260,14 +260,14 @@ Test der korrekten Erkennung von Links-/Rechtskurven und geraden Segmenten.
 - 15° rechts: `SegmentType.rightCurve`
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Vorzeichen-Konvention invertiert
 - Links/Rechts vertauscht
 - Gerade-Schwelle zu groß (10°)
 - Viele Kurven als "gerade" klassifiziert
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Positiver Winkel = Rechtskurve
 - Negativer Winkel = Linkskurve
 - Gerade-Schwelle: < 3°
@@ -309,14 +309,14 @@ Test der Command-Dauer-Berechnung für verschiedene Segment-Typen.
 - Sharp-Multiplikator: 5×
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Minimum-Dauer: 100ms (zu lang)
 - Kurven-Split: 70% / 30% (zu wenig Lenkzeit)
 - Sharp-Multiplikator: 3× (zu wenig für 90° Kurven)
 - Auto überfuhr Kurven
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Minimum-Dauer: 80ms
 - Kurven-Split: 90% / 10%
 - Sharp-Multiplikator: 5×
@@ -359,7 +359,7 @@ Test der Segment-Generierung und Anzahl bei verschiedenen Mindestabständen.
 - Minimaler Timer-Drift
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Mindestabstand: 5px
 - ~100+ Segmente pro Route
 - ~120 Befehle generiert
@@ -368,7 +368,7 @@ Test der Segment-Generierung und Anzahl bei verschiedenen Mindestabständen.
 - Auto kam nicht am Ziel an
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Mindestabstand: 30px
 - 10-15 Segmente pro Route
 - ~15-20 Befehle
@@ -411,14 +411,14 @@ Test der Punkt-Glättung für saubere Kurven-Erkennung.
 - Flüssige Fahrt
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - 3-Punkt-Glättung unzureichend
 - Viele kleine Zick-Zack-Segmente
 - Ruckelige Fahrt
 - Kurven-Erkennung ungenau
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - 5-Punkt gleitendes Mittel
 - Glatte Segmente
 - Flüssige Fahrt
@@ -463,14 +463,14 @@ Test der Distanz-zu-Zeit-Konvertierung für Vollgas-Motor.
 - Auto fährt korrekte Distanz
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Scale: × 10
 - Minimum: 150ms
 - 30px bei 1.0×: 300ms (zu lang)
 - Auto überfuhr kurze Strecken deutlich
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Scale: × 4
 - Minimum: 80ms
 - 30px bei 1.0×: 120ms
@@ -512,14 +512,14 @@ Test des Zusammenführens aufeinanderfolgender Kurven-Segmente.
 - Auto lenkt einmal und fährt weiter
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Eine 90° Ecke *DANN* 2-3 Kurven-Segmente (nach Glättung)
 - 2-3 separate Lenk-Befehle
 - Auto überdrehte
 - Zu starke Lenkung
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - `_mergeConsecutiveCurves()` implementiert
 - Aufeinanderfolgende gleich-gerichtete Kurven zusammengefasst
 - 1 Segment pro Ecke
@@ -563,14 +563,14 @@ Test der Zustandsbereinigung beim Wechsel von Driving zu Drawing Mode.
 - Sauberer State
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - `activeCommands` enthielt: `forward`, `left`
 - `keyPressed` enthielt: `W`, `A`
 - Playback sendete kombinierte Befehle: `forward,left,right`
 - Auto fuhr unkontrolliert
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - `activeCommands.clear()` am Anfang von `_startPlayback()`
 - `keyPressed.clear()` am Anfang von `_startPlayback()`
 - Nur Route-Befehle werden gesendet
@@ -612,7 +612,7 @@ Test der UI-Bereinigung (entfernte nicht-funktionale Elemente).
 - `_speedMultiplier` als `final` deklariert (Wert: 1.0)
 
 ### Tatsächliches Ergebnis
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Geschwindigkeitsregler entfernt (macht bei Vollgas-Motor keinen Sinn)
 - Save-Button entfernt (keine Speicherfunktion vorhanden)
 - `final double _speedMultiplier = 1.0;`

@@ -36,14 +36,14 @@ Test ob der ConnectionStatus-Button den korrekten Verbindungsstatus anzeigt.
 - Status ändert sich sofort bei Verbindungsaufbau
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Button zeigte **grün** obwohl keine Verbindung bestand
 - `connected.value = true` wurde gesetzt ohne echten Handshake
 - Blind `await Future.delayed(100ms)` wartete nur Zeit ab
 - Befehle konnten nicht gesendet werden trotz grünem Status
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Button zeigt korrekt rot/grau ohne Verbindung
 - Button zeigt grün nur nach erfolgreichem WebSocket-Handshake
 - `await _channel!.ready` wartet auf echte Verbindung
@@ -110,7 +110,7 @@ Test der Verbindungsstabilität über längere Zeit.
 - Keine automatischen Disconnects
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Verbindung wechselte alle paar Sekunden auf **Offline**
 - Status: Grün *DANN* Rot *DANN* Grün *DANN* Rot (zyklisch)
 - ESP32 trennte idle Verbindungen automatisch
@@ -118,7 +118,7 @@ Test der Verbindungsstabilität über längere Zeit.
 - Ständige Reconnect-Versuche
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Verbindung bleibt stabil über 5+ Minuten
 - Status bleibt konstant **grün**
 - Keepalive-Ping alle 5 Sekunden verhindert Timeout
@@ -204,7 +204,7 @@ Test der Geschwindigkeitsanzeige bei Tastatur-Steuerung (WASD).
 - HUD zeigt korrekte Geschwindigkeit in Echtzeit
 
 ### Tatsächliches Ergebnis (vor Fix)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Geschwindigkeitsanzeige aktualisierte sich **nur** bei On-Screen-Buttons
 - Bei WASD-Eingabe: HUD zeigte **0 km/h** trotz Fahrt
 - Auto fuhr (WebSocket-Befehle wurden gesendet)
@@ -212,7 +212,7 @@ Test der Geschwindigkeitsanzeige bei Tastatur-Steuerung (WASD).
 - Physikschleife `_updatePhysics()` hatte keine Daten
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Geschwindigkeitsanzeige aktualisiert sich bei WASD
 - Geschwindigkeitsanzeige aktualisiert sich bei Buttons
 - Identisches Verhalten für beide Eingabemethoden
@@ -330,7 +330,7 @@ Test des Sensor-Prüfungs-Dialogs beim Verbindungsaufbau.
 - Keine Möglichkeit `sensorOn` zu senden
 
 ### Tatsächliches Ergebnis (nach Fix)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Dialog erscheint bei Verbindungsaufbau
 - Nur auf Autonomous Driving Page
 - "Ja" sendet `sensorOn` erfolgreich
@@ -478,7 +478,7 @@ Verifikation dass Token-Bucket-Throttling entfernt wurde und Befehle wieder dire
 - Responsive Steuerung
 
 ### Tatsächliches Ergebnis (mit Token-Bucket)
-*FEHLGESCHLAGEN* **FEHLGESCHLAGEN**
+**FEHLGESCHLAGEN**
 - Befehle wurden verzögert (Token-Bucket-Limit)
 - Ruckelige Fahrt
 - Stop-Befehle verzögert (bis zu 200ms)
@@ -486,7 +486,7 @@ Verifikation dass Token-Bucket-Throttling entfernt wurde und Befehle wieder dire
 - Schlechte User Experience
 
 ### Tatsächliches Ergebnis (nach Entfernung)
-*BESTANDEN* **BESTANDEN**
+**BESTANDEN**
 - Befehle werden sofort gesendet
 - Flüssige, responsive Fahrt
 - Stop-Befehle ohne Verzögerung
