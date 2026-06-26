@@ -47,15 +47,3 @@ The ESP8266 firmware is uploaded using **PlatformIO**.
 4. Wait until the upload process has completed successfully.
 
 ---
-
-# Project Structure
-
-```text
-red.exe        -> Windows application
-red.app        -> macOS application
-red.apk        -> Android application
-Firmware/      -> ESP8266 firmware (PlatformIO)
-lib/           -> Flutter source code
-pubspec.yaml   -> Flutter dependencies
-README.md      -> Project documentation
-```
