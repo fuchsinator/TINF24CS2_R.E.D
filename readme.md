@@ -47,3 +47,24 @@ The ESP8266 firmware is uploaded using **PlatformIO**.
 4. Wait until the upload process has completed successfully.
 
 ---
+
+## Flutter build up
+Considering the main branch had been cloned follow the upcoming steps to fully build the working flutter up. 
+If errors accure during this process please refer to the documentation of flutter: https://docs.flutter.dev/reference/supported-platforms
+
+1. `flutter create . --platforms web` for the necessary web requirments
+2. `flutter create --platforms=windows,macos,linux .` for the necessary platform requirments
+
+Now consider your Operating System to follow the following steps: 
+### Android APK
+`flutter build apk --release`
+
+### Android App Bundle (für Play Store)
+`flutter build appbundle`
+
+### iOS (nur auf macOS möglich)
+`flutter build ipa --release`
+
+### Web
+`flutter build web`
+
