@@ -68,6 +68,7 @@ Now consider your Operating System to follow the following steps:
 ### Web (preferred) 
 `flutter build web`
 For starting the application on web: 
-`cd build/web`
-`python -m http.server 8000`
+1. `cd build/web`
+2. `python -m http.server 8000`
+3.  http://localhost:8000
 
